@@ -16,9 +16,6 @@ langchain-ollama
 chromadb
 langchain-chroma
 langchain-community
-langchain-huggingface
-sentence-transformers
 docx2txt
 pypdf
-langchain-google-genai
-google-generativeai
+requests
