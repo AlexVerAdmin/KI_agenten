@@ -2,21 +2,30 @@ import streamlit as st
 import uuid
 import os
 import subprocess
-from core.orchestrator import (
+# Переключаемся на v2 оркестратор для поддержки инструментов Obsidian и правильной БД
+from core.orchestrator_v2 import (
     process_message, 
-    get_chat_history, 
+    get_chat_history_db, 
     clear_chat_history, 
-    AGENT_REGISTRY, 
-    get_agent_model, 
-    set_agent_model
+    AGENT_REGISTRY
 )
 from utils.audio_utils import text_to_speech
 
+# КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ ЗАГРУЗКИ
+@st.cache_resource
+def init_system():
+    from core.orchestrator_v2 import app as langgraph_app
+    from core.utils_obsidian import obsidian as obs_manager
+    return langgraph_app, obs_manager
+
+# Быстрый старт
+app_engine, obsidian_engine = init_system()
+
 st.set_page_config(page_title='Antigravity Agents', layout='wide')
 
-# ФИКС ИСТОРИИ: ИСПОЛЬЗУЕМ ПОСТОЯННЫЙ ID ВМЕСТО РАНДОМНОГО
+# ФИКС ИСТОРИИ
 if 'user_id' not in st.session_state:
-    st.session_state.user_id = '207398589' # Тот самый ID, который есть в базе
+    st.session_state.user_id = '207398589'
 if 'agent_key' not in st.session_state:
     st.session_state.agent_key = 'general'
 if 'voice_enabled' not in st.session_state:
@@ -26,7 +35,7 @@ current_agent_key = st.session_state.agent_key
 agent_list = list(AGENT_REGISTRY.keys())
 active_index = agent_list.index(current_agent_key) + 1 
 
-# CSS (Красные кнопки и Геометрия)
+# CSS (Telegram-style Bubbles)
 st.markdown(f"""
     <style>
     [data-testid="stSidebar"] [data-testid="stElementContainer"] {{
@@ -48,52 +57,84 @@ st.markdown(f"""
         font-size: 16px !important;
         margin-bottom: 15px !important;
         display: block !important;
-        overflow: hidden !important;
     }}
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-of-type({active_index + 1}) button {{
         background-color: #a01a1a !important;
         color: white !important;
         border: 2px solid #801010 !important;
-        box-shadow: inset 0 2px 4px rgba(0,0,0,0.2) !important;
     }}
-    [data-testid="stSidebar"] button:hover p {{
-        color: inherit !important;
+    
+    /* Стили пузырьков */
+    [data-testid="stChatMessage"] {{
+        border-radius: 18px !important;
+        padding: 12px !important;
+        margin-bottom: 8px !important;
+        width: fit-content !important;
+        max-width: 80% !important;
+        display: flex !important;
+    }}
+    
+    /* Сообщение пользователя - СМЕЩЕНИЕ ВПРАВО */
+    [data-testid="stChatMessageUser"] {{
+        background-color: #dcf8c6 !important;
+        margin-left: auto !important;
+        border-bottom-right-radius: 2px !important;
+        flex-direction: row-reverse !important;
+    }}
+    [data-testid="stChatMessageUser"] .stMarkdown p {{
+        color: #111111 !important;
+        text-align: right !important;
+    }}
+    [data-testid="stChatMessageUser"] .stCaption {{
+        text-align: right !important;
+        width: 100% !important;
+    }}
+    
+    /* Сообщение ассистента - СМЕЩЕНИЕ ВЛЕВО */
+    [data-testid="stChatMessageAssistant"] {{
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        margin-right: auto !important;
+        border-bottom-left-radius: 2px !important;
+    }}
+    [data-testid="stChatMessageAssistant"] .stMarkdown p {{
+        color: #111111 !important;
+        text-align: left !important;
+    }}
+
+    /* Поддержка темной темы Streamlit */
+    @media (prefers-color-scheme: dark) {{
+        [data-testid="stChatMessageUser"] {{
+            background-color: #056162 !important;
+        }}
+        [data-testid="stChatMessageUser"] .stMarkdown p {{
+            color: #ffffff !important;
+        }}
+        [data-testid="stChatMessageAssistant"] {{
+            background-color: #262d31 !important;
+            border: 1px solid #3b4a54 !important;
+        }}
+        [data-testid="stChatMessageAssistant"] .stMarkdown p {{
+            color: #eeeeee !important;
+        }}
+    }}
+    
+    /* Убираем лишние отступы контейнеров чата для чистого смещения */
+    [data-testid="column"] > div > div > div > div.stChatMessage {{
+        width: 100% !important;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 st.sidebar.title('🧠 Агенты')
 
-# ОТРИСОВКА КНОПОК
 for key, agent in AGENT_REGISTRY.items():
     if st.sidebar.button(agent['name'], key=f"btn_{key}"):
         st.session_state.agent_key = key
         st.rerun()
 
 st.sidebar.divider()
-
-# МОДЕЛИ
-available_models = {
-    'Автоматически': 'auto',
-    'Groq (Llama 3.3)': 'llama-3.3-70b-versatile',
-    'Gemini 3.0 Flash': 'gemini-3-flash-preview',
-    'Gemini 3.1 Pro': 'gemini-3.1-pro-preview'
-}
-
-saved_val = get_agent_model(current_agent_key) or 'auto'
-model_labels = list(available_models.keys())
-model_values = list(available_models.values())
-
-sel_label = st.sidebar.selectbox('Модель:', options=model_labels, index=model_values.index(saved_val) if saved_val in model_values else 0)
-
-if available_models[sel_label] != saved_val:
-    set_agent_model(current_agent_key, available_models[sel_label])
-    st.rerun()
-
-actual = available_models[sel_label]
-if actual == 'auto': actual = AGENT_REGISTRY[current_agent_key]['default_model']
-
-st.sidebar.info(f"Активна: {actual}")
+st.sidebar.info(f"Активен: {AGENT_REGISTRY[current_agent_key]['name']}")
 st.sidebar.toggle('🔊 Голос', key='voice_enabled')
 
 st.sidebar.divider()
@@ -107,14 +148,27 @@ with st.sidebar.expander("🛠 Отладка"):
     if st.button('🗑 Очистить историю'):
         if clear_chat_history(st.session_state.user_id, current_agent_key): st.rerun()
 
-# ЧАТ (Восстановление истории)
-history = get_chat_history(st.session_state.user_id)
-# Фильтруем за все время для текущего агента
-agent_history = [m for m in history if m.get('agent') == current_agent_key]
+# ЧАТ
+history = get_chat_history_db(st.session_state.user_id, current_agent_key)
 
-for msg in agent_history:
-    with st.chat_message('user' if msg['role'] == 'user' else 'assistant'):
+for msg in history:
+    is_user = (msg['role'] == 'user')
+    with st.chat_message('user' if is_user else 'assistant'):
         st.markdown(msg['content'])
+        
+        # Исправляем отображение имен и времени
+        display_name = "Вы" if is_user else AGENT_REGISTRY.get(msg['agent'], {}).get('name', 'Оркестратор')
+        
+        # Получаем время из кортежа или словаря (зависит от того как sqlite возвращает данные)
+        # В нашем случае get_chat_history_db возвращает список словарей
+        # {'role': r[0], 'content': r[1], 'agent': r[2]} - ОЙ, в orchestrator_v2.py не возвращается timestamp!
+        ts_val = msg.get('timestamp', 'Неизвестно')
+        if ts_val and ts_val != 'Неизвестно':
+            ts = str(ts_val).split('.')[0]
+        else:
+            ts = ""
+            
+        st.caption(f"👤 {display_name} {('| 🕒 ' + ts) if ts else ''}")
 
 if prompt := st.chat_input('Сообщение...'):
     st.chat_message('user').markdown(prompt)
@@ -122,6 +176,9 @@ if prompt := st.chat_input('Сообщение...'):
         with st.spinner():
             resp = process_message(prompt, st.session_state.user_id, agent_type=current_agent_key)
             st.markdown(resp['text'])
+            agent_name = AGENT_REGISTRY.get(resp.get('active_node'), {}).get('name', 'Оркестратор')
+            st.caption(f"👤 {agent_name} | 🕒 Только что")
+            
             if st.session_state.voice_enabled:
                 audio = text_to_speech(resp['text'], current_agent_key)
                 if audio: st.audio(audio, format='audio/mp3')
