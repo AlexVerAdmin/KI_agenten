@@ -10,8 +10,14 @@ class Settings(BaseSettings):
     job_search_path: str = ""
     google_api_key: str = ""
     github_copilot_token: str = ""
+    sqlite_db_path: str = "memory_v2.sqlite"
+    local_server_url: str = "http://localhost:11434"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env", 
+        env_file_encoding="utf-8",
+        extra="allow"
+    )
 
 # Initialize and validate settings
 config = Settings()

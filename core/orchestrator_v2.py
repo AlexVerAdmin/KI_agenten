@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import logging, os
+import requests
 from datetime import datetime
 from typing import Annotated, Literal, TypedDict, List, Union
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage
@@ -13,7 +14,8 @@ from core.utils_obsidian import obsidian
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 # --- DB PERSISTENCE ---
-DB_PATH = os.getenv('SQLITE_DB_PATH', 'memory_v2.sqlite')
+DB_PATH = config.sqlite_db_path
+LOCAL_SERVER_URL = config.local_server_url
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -171,5 +173,13 @@ def process_message(text, user_id, agent_type='general', model_override=None, **
     return {'text': ai_text, 'active_node': agent_type}
 
 def get_chat_history(uid): return get_chat_history_db(uid)
-def is_ollama_online(): return False
+
+def is_ollama_online():
+    """Проверка доступности локального Ollama сервера (GPU-нода)"""
+    try:
+        response = requests.get(f"{LOCAL_SERVER_URL}/api/tags", timeout=2)
+        return response.status_code == 200
+    except:
+        return False
+
 def is_copilot_configured(): return True

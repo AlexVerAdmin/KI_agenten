@@ -8,7 +8,7 @@ if not exist "venv\Scripts\python.exe" (
 )
 
 :: Activate venv and run bot
-call .\venv\Scripts\activate.bat
+call venv\Scripts\activate.bat
 python bot.py
 
 pause

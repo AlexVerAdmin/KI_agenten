@@ -8,7 +8,7 @@ if not exist "venv\Scripts\python.exe" (
 )
 
 :: Activate venv and run streamlit
-call .\venv\Scripts\activate.bat
+call venv\Scripts\activate.bat
 python -m streamlit run app.py
 
 pause

@@ -135,6 +135,14 @@ for key, agent in AGENT_REGISTRY.items():
 
 st.sidebar.divider()
 st.sidebar.info(f"Активен: {AGENT_REGISTRY[current_agent_key]['name']}")
+
+# Мониторинг локального сервера
+ollama_status = is_ollama_online()
+if ollama_status:
+    st.sidebar.success("🟢 Local GPU Нода: ONLINE")
+else:
+    st.sidebar.error("🔴 Local GPU Нода: OFFLINE")
+
 st.sidebar.toggle('🔊 Голос', key='voice_enabled')
 
 st.sidebar.divider()
