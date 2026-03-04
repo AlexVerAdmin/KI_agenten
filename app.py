@@ -7,7 +7,8 @@ from core.orchestrator_v2 import (
     process_message, 
     get_chat_history_db, 
     clear_chat_history, 
-    AGENT_REGISTRY
+    AGENT_REGISTRY,
+    is_ollama_online
 )
 from utils.audio_utils import text_to_speech
 
