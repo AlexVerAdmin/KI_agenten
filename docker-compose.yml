@@ -35,12 +35,12 @@ services:
     labels:
       - "traefik.enable=true"
       # Хост для вашего AI-инструмента
-      - "traefik.http.routers.antigravity-ui.rule=Host(`ai.yourdomain.com`)"
+      - "traefik.http.routers.antigravity-ui.rule=Host(`agents.eurostick.com.ua`)"
       - "traefik.http.routers.antigravity-ui.entrypoints=websecure"
       - "traefik.http.routers.antigravity-ui.tls=true"
-      - "traefik.http.routers.antigravity-ui.tls.certresolver=le"
-      # Подключение ВАШЕЙ Authelia
-      - "traefik.http.routers.antigravity-ui.middlewares=authelia@docker"
+      - "traefik.http.routers.antigravity-ui.tls.certresolver=letsencrypt"
+      # Подключение вашей цепочки мидлвар (secured-chain@file)
+      - "traefik.http.routers.antigravity-ui.middlewares=secured-chain@file"
       - "traefik.http.services.antigravity-ui.loadbalancer.server.port=8501"
 
   # Синхронизация Obsidian (Syncthing)
@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
     ports:
       - "22000:22000/tcp" # Sync protocol
-      - "22334:22000/udp" # Изменил порт, если стандартный занят WG
+      - "22334:22000/udp"
     volumes:
       - ./obsidian:/var/syncthing/obsidian
       - ./st-config:/var/syncthing/config
@@ -58,15 +58,16 @@ services:
       - PUID=1000
       - PGID=1000
     networks:
-      - traefik-proxy
+      - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.syncthing.rule=Host(`sync-ai.yourdomain.com`)"
+      - "traefik.http.routers.syncthing.rule=Host(`sync-agents.eurostick.com.ua`)"
       - "traefik.http.routers.syncthing.entrypoints=websecure"
       - "traefik.http.routers.syncthing.tls=true"
-      - "traefik.http.routers.syncthing.middlewares=authelia@docker"
+      - "traefik.http.routers.syncthing.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.syncthing.middlewares=secured-chain@file"
       - "traefik.http.services.syncthing.loadbalancer.server.port=8384"
 
 networks:
-  traefik-proxy:
+  proxy:
     external: true
