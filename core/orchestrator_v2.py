@@ -90,8 +90,8 @@ def get_model(purpose='general', model_override=None):
 
     model_name = model_override
     if not model_name:
-        if purpose == 'german': model_name = 'gemini-1.5-pro-latest'
-        elif purpose == 'career': model_name = 'gemini-1.5-flash-latest'
+        if purpose == 'german': model_name = 'gemini-1.5-pro'
+        elif purpose == 'career': model_name = 'gemini-1.5-flash'
         else: return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
 
     if 'gemini' in model_name:
