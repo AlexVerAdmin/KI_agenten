@@ -135,7 +135,22 @@ for key, agent in AGENT_REGISTRY.items():
         st.rerun()
 
 st.sidebar.divider()
-st.sidebar.info(f"Активен: {AGENT_REGISTRY[current_agent_key]['name']}")
+st.sidebar.info(f"👤 Активен: {AGENT_REGISTRY[current_agent_key]['name']}")
+
+# ВЫБОР МОДЕЛИ (Model Override)
+MODEL_OPTIONS = {
+    'gemini-1.5-pro': '💎 Gemini 1.5 Pro',
+    'gemini-1.5-flash': '⚡ Gemini 1.5 Flash',
+    'llama-3.3-70b-versatile': '🦙 Llama 3.3 70B (Groq)'
+}
+
+selected_model_label = st.sidebar.selectbox(
+    "Выбор модели:",
+    options=list(MODEL_OPTIONS.keys()),
+    format_func=lambda x: MODEL_OPTIONS[x],
+    index=1 if current_agent_key == 'german' else 0 # По умолчанию Flash для учителя (безопасно)
+)
+st.session_state.model_override = selected_model_label
 
 # Мониторинг локального сервера
 ollama_status = is_ollama_online()
