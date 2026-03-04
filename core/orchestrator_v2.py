@@ -172,7 +172,13 @@ def process_message(text, user_id, agent_type='general', model_override=None, **
         if m['role'] == 'user': msgs.append(HumanMessage(content=m['content']))
         else: msgs.append(AIMessage(content=m['content']))
     inputs = {'messages': msgs, 'agent_type': agent_type, 'model_override': model_override}
-    res = app.invoke(inputs)
+    # Увеличиваем лимит рекурсии до 50 и добавляем обработку ошибок
+    try:
+        res = app.invoke(inputs, config={"recursion_limit": 50})
+    except Exception as e:
+        logging.error(f"Graph execution failed: {e}")
+        return {'text': f"Ошибка в логике агента: {str(e)}", 'active_node': agent_type}
+        
     ai_text = res['messages'][-1].content
     save_message(user_id, agent_type, 'assistant', ai_text)
     return {'text': ai_text, 'active_node': agent_type}
