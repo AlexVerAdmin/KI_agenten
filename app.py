@@ -198,7 +198,13 @@ if prompt := st.chat_input('Сообщение...'):
     st.chat_message('user').markdown(prompt)
     with st.chat_message('assistant'):
         with st.spinner():
-            resp = process_message(prompt, st.session_state.user_id, agent_type=current_agent_key)
+            # Передаем выбранную модель в процесс обработки сообщения
+            resp = process_message(
+                prompt, 
+                st.session_state.user_id, 
+                agent_type=current_agent_key,
+                model_override=st.session_state.get('model_override')
+            )
             st.markdown(resp['text'])
             agent_name = AGENT_REGISTRY.get(resp.get('active_node'), {}).get('name', 'Оркестратор')
             st.caption(f"👤 {agent_name} | 🕒 Только что")
