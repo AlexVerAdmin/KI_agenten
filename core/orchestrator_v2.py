@@ -13,7 +13,7 @@ from core.utils_obsidian import obsidian
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 # --- DB PERSISTENCE ---
-DB_PATH = 'memory_v2.sqlite'
+DB_PATH = os.getenv('SQLITE_DB_PATH', 'memory_v2.sqlite')
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)

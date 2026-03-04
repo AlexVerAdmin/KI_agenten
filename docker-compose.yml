@@ -1,0 +1,72 @@
+services:
+  # Телеграм-бот (основной процесс)
+  bot:
+    build: .
+    command: python bot.py
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 150M  # Жесткий лимит RAM
+    volumes:
+      - ./data:/app/data
+      - ./obsidian:/app/obsidian
+      - ./chroma_db:/app/chroma_db
+    env_file: .env
+    networks:
+      - traefik-proxy
+
+  # UI (Streamlit интерфейс под защитой Authelia)
+  ui:
+    build: .
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 250M # Лимит для UI
+    volumes:
+      - ./data:/app/data
+      - ./obsidian:/app/obsidian
+      - ./chroma_db:/app/chroma_db
+    env_file: .env
+    networks:
+      - traefik-proxy
+    labels:
+      - "traefik.enable=true"
+      # Хост для вашего AI-инструмента
+      - "traefik.http.routers.antigravity-ui.rule=Host(`ai.yourdomain.com`)"
+      - "traefik.http.routers.antigravity-ui.entrypoints=websecure"
+      - "traefik.http.routers.antigravity-ui.tls=true"
+      - "traefik.http.routers.antigravity-ui.tls.certresolver=le"
+      # Подключение ВАШЕЙ Authelia
+      - "traefik.http.routers.antigravity-ui.middlewares=authelia@docker"
+      - "traefik.http.services.antigravity-ui.loadbalancer.server.port=8501"
+
+  # Синхронизация Obsidian (Syncthing)
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: syncthing-obsidian
+    restart: unless-stopped
+    ports:
+      - "22000:22000/tcp" # Sync protocol
+      - "22334:22000/udp" # Изменил порт, если стандартный занят WG
+    volumes:
+      - ./obsidian:/var/syncthing/obsidian
+      - ./st-config:/var/syncthing/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+    networks:
+      - traefik-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.syncthing.rule=Host(`sync-ai.yourdomain.com`)"
+      - "traefik.http.routers.syncthing.entrypoints=websecure"
+      - "traefik.http.routers.syncthing.tls=true"
+      - "traefik.http.routers.syncthing.middlewares=authelia@docker"
+      - "traefik.http.services.syncthing.loadbalancer.server.port=8384"
+
+networks:
+  traefik-proxy:
+    external: true
