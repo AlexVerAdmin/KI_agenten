@@ -98,7 +98,8 @@ def get_model(purpose='general', model_override=None):
         return ChatGoogleGenerativeAI(
             model=model_name, 
             google_api_key=config.google_api_key,
-            convert_system_message_to_human=True # Важно для совместимости с LangGraph
+            convert_system_message_to_human=True,
+            version="v1"  # Явно заставляем использовать стабильную версию v1
         )
     return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
 
