@@ -14,7 +14,7 @@ services:
       - ./chroma_db:/app/chroma_db
     env_file: .env
     networks:
-      - traefik-proxy
+      - proxy
 
   # UI (Streamlit интерфейс под защитой Authelia)
   ui:
@@ -31,7 +31,7 @@ services:
       - ./chroma_db:/app/chroma_db
     env_file: .env
     networks:
-      - traefik-proxy
+      - proxy
     labels:
       - "traefik.enable=true"
       # Хост для вашего AI-инструмента
