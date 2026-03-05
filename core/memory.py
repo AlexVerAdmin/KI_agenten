@@ -97,6 +97,23 @@ def index_knowledge_base():
         persist_directory=DB_DIR,
         collection_name="obsidian_knowledge"
     )
+
+def vector_db_search_tool(query: str, top_k: int = 3) -> str:
+    """Поиск по базе знаний (Obsidian, документы Nextcloud) через векторную базу (RAG). 
+    Используй для ответов на вопросы о вакансиях, опыте работы или прошлых заметках."""
+    try:
+        db = get_vector_db()
+        results = db.similarity_search(query, k=top_k)
+        if not results:
+            return "Ничего не найдено в базе знаний."
+        
+        response_text = "Результаты поиска в документах:\n\n"
+        for doc in results:
+            source = doc.metadata.get("source", "Неизвестный источник")
+            response_text += f"--- [Файл: {os.path.basename(source)}] ---\n{doc.page_content}\n"
+        return response_text
+    except Exception as e:
+        return f"Ошибка при поиске в БД: {str(e)}"
     
     logging.info(f"Successfully indexed {len(all_docs)} files into {len(splits)} chunks.")
     return True

@@ -21,15 +21,48 @@ LOCAL_SERVER_URL = config.local_server_url
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('CREATE TABLE IF NOT EXISTS chat_history (user_id TEXT, agent_type TEXT, role TEXT, content TEXT, timestamp DATETIME)')
+    # Таблица истории с поддержкой модели
+    cur.execute('''CREATE TABLE IF NOT EXISTS chat_history (
+        user_id TEXT, 
+        agent_type TEXT, 
+        role TEXT, 
+        content TEXT, 
+        timestamp DATETIME,
+        model_name TEXT
+    )''')
+    # Таблица настроек агентов (для сохранения выбранной модели)
+    cur.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
+        user_id TEXT,
+        agent_type TEXT,
+        setting_key TEXT,
+        setting_value TEXT,
+        PRIMARY KEY (user_id, agent_type, setting_key)
+    )''')
     conn.commit()
     conn.close()
 
-def save_message(user_id, agent_type, role, content):
+def save_message(user_id, agent_type, role, content, model_name=None):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp) VALUES (?, ?, ?, ?, ?)', 
-                (user_id, agent_type, role, content, datetime.now()))
+    cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp, model_name) VALUES (?, ?, ?, ?, ?, ?)', 
+                (user_id, agent_type, role, content, datetime.now(), model_name))
+    conn.commit()
+    conn.close()
+
+def get_agent_setting(user_id, agent_type, key, default=None):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('SELECT setting_value FROM agent_settings WHERE user_id = ? AND agent_type = ? AND setting_key = ?', 
+                (user_id, agent_type, key))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else default
+
+def save_agent_setting(user_id, agent_type, key, value):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('''INSERT OR REPLACE INTO agent_settings (user_id, agent_type, setting_key, setting_value) 
+                   VALUES (?, ?, ?, ?)''', (user_id, agent_type, key, value))
     conn.commit()
     conn.close()
 
@@ -71,12 +104,36 @@ def obsidian_log_thought_tool(content: str) -> str:
     """Запись мысли или события в ежедневный файл (Daily Note)."""
     return obsidian.log_thought(content)
 
-OBSIDIAN_TOOLS = [obsidian_capture_tool, obsidian_read_note_tool, obsidian_log_thought_tool]
+from core.memory import vector_db_search_tool as local_vector_search
+
+def vector_db_search_tool(query: str, top_k: int = 3) -> str:
+    """Поиск по базе знаний (Obsidian, документы). Перенаправляет на Home Lab, если настроен удаленный эндпоинт."""
+    remote_worker = os.getenv("REMOTE_WORKER_URL", "none")
+    api_secret = os.getenv("API_SECRET", "change_me_in_env")
+
+    if remote_worker != "none":
+        try:
+            response = requests.post(
+                f"{remote_worker.rstrip('/')}/search",
+                params={"query": query},
+                headers={"X-Token": api_secret},
+                timeout=15
+            )
+            if response.status_code == 200:
+                return response.json().get("results", "Ничего не найдено.")
+            return f"Ошибка воркера: {response.status_code}"
+        except Exception as e:
+            return f"Нет связи с Home Lab RAG: {str(e)}"
+    
+    return local_vector_search(query, top_k)
+
+OBSIDIAN_TOOLS = [obsidian_capture_tool, obsidian_read_note_tool, obsidian_log_thought_tool, vector_db_search_tool]
 ADMIN_TOOLS = [
     admin_tools.check_connection,
     admin_tools.get_docker_status,
     admin_tools.get_gpu_info,
-    admin_tools.request_shell_execution
+    admin_tools.request_shell_execution,
+    vector_db_search_tool
 ]
 
 # --- AGENT CORE ---
@@ -92,30 +149,55 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     agent_type: str
     model_override: str
+    user_id: str
 
-def get_model(purpose='general', model_override=None):
+def get_model(purpose='general', model_override=None, user_id=None):
     if not config.google_api_key or not config.groq_api_key:
         raise ValueError('Missing API keys in config.py')
 
+    # Приоритет: 1. override из UI, 2. Сохраненная настройка из БД, 3. Default
     model_name = model_override
+    if not model_name and user_id:
+        model_name = get_agent_setting(user_id, purpose, 'selected_model')
+
     if not model_name:
         if purpose == 'german': model_name = 'gemini-2.5-pro'
         elif purpose == 'career': model_name = 'gemini-2.5-flash'
-        else: return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
+        elif purpose in ['vds_admin', 'local_admin']: model_name = 'ollama/llama3.1:8b'
+        else: model_name = 'llama-3.3-70b-versatile'
+
+    # Поддержка Ollama через LangChain
+    if model_name.startswith('ollama/'):
+        from langchain_ollama import ChatOllama
+        actual_model = model_name.replace('ollama/', '')
+        return ChatOllama(model=actual_model, base_url=config.local_server_url)
 
     if 'gemini' in model_name:
         return ChatGoogleGenerativeAI(
             model=model_name, 
             google_api_key=config.google_api_key,
             convert_system_message_to_human=True,
-            version="v1beta"  # Для моделей 2.5 обязательна v1beta
+            version="v1beta"
         )
-    return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
+        
+    return ChatGroq(model_name=model_name, api_key=config.groq_api_key)
 
 def is_ollama_online():
-    """Проверка доступности локального Ollama сервера (GPU-нода)"""
+    """Проверка доступности Ollama через VPN (10.8.0.x), локальные сети (192.168.x.x) или Docker."""
+    env_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip('/')
+    
+    # Список разрешенных сетей для безопасности
+    ALLOWED_NETWORKS = ["10.8.0.", "192.168.88.", "192.168.2.", "http://ollama"]
+    
     try:
-        response = requests.get(f"{config.local_server_url}/api/tags", timeout=2)
+        # 1. Проверка основного URL
+        if any(net in env_url for net in ALLOWED_NETWORKS):
+            response = requests.get(f"{env_url}/api/tags", timeout=3)
+            if response.status_code == 200:
+                return True
+            
+        # 2. Запасной вариант: внутренняя сеть Docker
+        response = requests.get("http://ollama:11434/api/tags", timeout=2)
         return response.status_code == 200
     except:
         return False
@@ -123,7 +205,11 @@ def is_ollama_online():
 def node_handler(state: AgentState):
     agent_type = state.get('agent_type', 'general')
     model_override = state.get('model_override')
-    llm = get_model(agent_type, model_override)
+    # Передаем user_id для поиска сохраненной модели
+    # (состояние графа расширено в process_message ниже)
+    user_id = state.get('user_id', '207398589') 
+    
+    llm = get_model(agent_type, model_override, user_id=user_id)
     
     # Привязываем инструменты в зависимости от типа агента
     if agent_type == 'german':
@@ -171,6 +257,8 @@ def tool_node(state: AgentState):
                 result = obsidian_read_note_tool(**args)
             elif tool_name == 'obsidian_log_thought_tool':
                 result = obsidian_log_thought_tool(**args)
+            elif tool_name == 'vector_db_search_tool':
+                result = vector_db_search_tool(**args)
             else:
                 result = "Unknown tool"
                 
@@ -195,27 +283,30 @@ workflow.add_edge('tools', 'agent')
 app = workflow.compile()
 
 def process_message(text, user_id, agent_type='general', model_override=None, **kwargs):
-    save_message(user_id, agent_type, 'user', text)
+    # Сохраняем модель в БД, если она была выбрана вручную в UI
+    if model_override:
+        save_agent_setting(user_id, agent_type, 'selected_model', model_override)
+    
+    save_message(user_id, agent_type, 'user', text, model_name=model_override)
     history_raw = get_chat_history_db(user_id, agent_type)
     msgs = []
     for m in history_raw[-10:]:
         if m['role'] == 'user': msgs.append(HumanMessage(content=m['content']))
         else: msgs.append(AIMessage(content=m['content']))
-    inputs = {'messages': msgs, 'agent_type': agent_type, 'model_override': model_override}
+    
+    inputs = {
+        'messages': msgs, 
+        'agent_type': agent_type, 
+        'model_override': model_override,
+        'user_id': user_id
+    }
+    
     # Увеличиваем лимит рекурсии до 50 для сложных запросов администратора
     res = app.invoke(inputs, config={"recursion_limit": 50})
     ai_text = res['messages'][-1].content
-    save_message(user_id, agent_type, 'assistant', ai_text)
+    save_message(user_id, agent_type, 'assistant', ai_text, model_name=model_override)
     return {'text': ai_text, 'active_node': agent_type}
 
 def get_chat_history(uid): return get_chat_history_db(uid)
-
-def is_ollama_online():
-    """Проверка доступности локального Ollama сервера (GPU-нода)"""
-    try:
-        response = requests.get(f"{LOCAL_SERVER_URL}/api/tags", timeout=2)
-        return response.status_code == 200
-    except:
-        return False
 
 def is_copilot_configured(): return True
