@@ -11,6 +11,7 @@ from config import config
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from core.utils_obsidian import obsidian
+from core.admin_tools import admin_tools
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 # --- DB PERSISTENCE ---
@@ -71,12 +72,20 @@ def obsidian_log_thought_tool(content: str) -> str:
     return obsidian.log_thought(content)
 
 OBSIDIAN_TOOLS = [obsidian_capture_tool, obsidian_read_note_tool, obsidian_log_thought_tool]
+ADMIN_TOOLS = [
+    admin_tools.check_connection,
+    admin_tools.get_docker_status,
+    admin_tools.get_gpu_info,
+    admin_tools.request_shell_execution
+]
 
 # --- AGENT CORE ---
 AGENT_REGISTRY = {
     'general': {'name': 'Общий ассистент'},
     'german': {'name': 'Herr Max Klein (Учитель)'},
-    'career': {'name': 'HR-Эксперт'}
+    'career': {'name': 'HR-Эксперт'},
+    'vds_admin': {'name': 'Админ VDS (DevOps)'},
+    'local_admin': {'name': 'Админ Локальный (Home Lab)'}
 }
 
 class AgentState(TypedDict):
@@ -100,15 +109,19 @@ def get_model(purpose='general', model_override=None):
             google_api_key=config.google_api_key,
             convert_system_message_to_human=True,
             version="v1beta"  # Для моделей 2.5 обязательна v1beta
-        )
-    return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
-
-def node_handler(state: AgentState):
-    agent_type = state.get('agent_type', 'general')
-    model_override = state.get('model_override')
-    llm = get_model(agent_type, model_override)
+        )в зависимости от типа агента
+    if agent_type == 'german':
+        llm_with_tools = llm.bind_tools(OBSIDIAN_TOOLS)
+    elif agent_type in ['vds_admin', 'local_admin']:
+        llm_with_tools = llm.bind_tools(ADMIN_TOOLS)
+    else:
+        llm_with_tools = llm
     
-    # Привязываем инструменты если агент Herr Max Klein
+    system_prompts = {
+        'german': 'Ты Herr Max Klein, профессиональный учитель немецкого. Ответы на немецком, пояснения на русском. Используй Sie. У тебя есть доступ к Obsidian через инструменты.',
+        'career': 'Ты эксперт по карьере и HR. Помогай с резюме и стратегией роста. Твой тон профессиональный.',
+        'vds_admin': 'Ты системный администратор VDS. Твоя задача — мониторинг контейнеров, сети Traefik и логов. Если хочешь выполнить опасную команду, используй request_shell_execution.',
+        'local_admin': 'Ты администратор домашней лаборатории на Proxmox. У тебя есть доступ к данным о GPU P4000. Помогай настраивать локальные нейросети
     if agent_type == 'german':
         llm_with_tools = llm.bind_tools(OBSIDIAN_TOOLS)
     else:
@@ -137,6 +150,15 @@ def tool_node(state: AgentState):
             
             if tool_name == 'obsidian_capture_tool':
                 result = obsidian_capture_tool(**args)
+            # Admin Tools
+            elif tool_name == 'check_connection':
+                result = admin_tools.check_connection(**args)
+            elif tool_name == 'get_docker_status':
+                result = admin_tools.get_docker_status(**args)
+            elif tool_name == 'get_gpu_info':
+                result = admin_tools.get_gpu_info()
+            elif tool_name == 'request_shell_execution':
+                result = admin_tools.request_shell_execution(**args)
             elif tool_name == 'obsidian_read_note_tool':
                 result = obsidian_read_note_tool(**args)
             elif tool_name == 'obsidian_log_thought_tool':
