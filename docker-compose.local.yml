@@ -2,7 +2,12 @@
 services:
   # Этот сервис работает только как воркер индексации и RAG на домашнем сервере
   local_worker:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Указываем другой файл requirements для сборки воркера
+        - REQUIREMENTS_FILE=requirements-local.txt
     container_name: antigravity_worker
     restart: always
     volumes:

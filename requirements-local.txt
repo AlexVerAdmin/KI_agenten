@@ -1,0 +1,10 @@
+# Базовые зависимости (из основного файла)
+-r requirements.txt
+
+# Тяжелые зависимости только для локального воркера (RAG)
+chromadb
+langchain-chroma
+langchain-huggingface
+sentence-transformers
+docx2txt
+pypdf

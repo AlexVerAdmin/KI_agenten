@@ -13,12 +13,9 @@ edge-tts
 streamlit
 langchain-google-genai==2.0.10
 langchain-ollama
-chromadb
-langchain-chroma
-langchain-community
-docx2txt
-pypdf
 requests
 fastapi
 uvicorn
 python-multipart
+# Удалены тяжелые библиотеки для VDS (ChromaDB, HuggingFace и т.д.)
+# Они перенесены в requirements-local.txt
