@@ -57,21 +57,36 @@ def save_message(user_id, agent_type, role, content, model_name=None):
     conn.close()
 
 def get_agent_setting(user_id, agent_type, key, default=None):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT setting_value FROM agent_settings WHERE user_id = ? AND agent_type = ? AND setting_key = ?', 
-                (user_id, agent_type, key))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else default
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute('SELECT setting_value FROM agent_settings WHERE user_id = ? AND agent_type = ? AND setting_key = ?', 
+                    (user_id, agent_type, key))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else default
+    except sqlite3.OperationalError:
+        # Если таблицы или колонки нет, пробуем пересоздать через init_db и возвращаем дефолт
+        init_db()
+        return default
 
 def save_agent_setting(user_id, agent_type, key, value):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('''INSERT OR REPLACE INTO agent_settings (user_id, agent_type, setting_key, setting_value) 
-                   VALUES (?, ?, ?, ?)''', (user_id, agent_type, key, value))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute('''INSERT OR REPLACE INTO agent_settings (user_id, agent_type, setting_key, setting_value) 
+                       VALUES (?, ?, ?, ?)''', (user_id, agent_type, key, value))
+        conn.commit()
+        conn.close()
+    except sqlite3.OperationalError:
+        init_db()
+        # Повторная попытка после исправления структуры
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute('''INSERT OR REPLACE INTO agent_settings (user_id, agent_type, setting_key, setting_value) 
+                       VALUES (?, ?, ?, ?)''', (user_id, agent_type, key, value))
+        conn.commit()
+        conn.close()
 
 def get_chat_history_db(user_id, agent_type=None):
     conn = sqlite3.connect(DB_PATH)
