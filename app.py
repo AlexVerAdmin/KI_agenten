@@ -2,15 +2,20 @@ import streamlit as st
 import uuid
 import os
 import subprocess
-# Переключаемся на v2 оркестратор для поддержки инструментов Obsidian и правильной БД
-from core.orchestrator_v2 import (
-    process_message, 
-    get_chat_history_db, 
-    clear_chat_history, 
-    AGENT_REGISTRY,
-    is_ollama_online
-)
-from utils.audio_utils import text_to_speech
+
+# Ленивый импорт тяжелых модулей
+def get_orchestrator():
+    from core.orchestrator_v2 import (
+        process_message, 
+        get_chat_history_db, 
+        clear_chat_history, 
+        AGENT_REGISTRY,
+        is_ollama_online,
+        get_agent_setting, 
+        save_agent_setting
+    )
+    return (process_message, get_chat_history_db, clear_chat_history, 
+            AGENT_REGISTRY, is_ollama_online, get_agent_setting, save_agent_setting)
 
 # КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ ЗАГРУЗКИ
 @st.cache_resource
@@ -19,8 +24,12 @@ def init_system():
     from core.utils_obsidian import obsidian as obs_manager
     return langgraph_app, obs_manager
 
-# Быстрый старт
+# Быстрый старт (теперь только кеш, без тяжелых импортов в глобальной области)
 app_engine, obsidian_engine = init_system()
+(process_message, get_chat_history_db, clear_chat_history, 
+ AGENT_REGISTRY, is_ollama_online, get_agent_setting, save_agent_setting) = get_orchestrator()
+
+from utils.audio_utils import text_to_speech
 
 st.set_page_config(page_title='Antigravity Agents', layout='wide')
 
@@ -59,7 +68,13 @@ st.markdown(f"""
         margin-bottom: 15px !important;
         display: block !important;
     }}
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-of-type({active_index + 1}) button {{
+    /* Универсальный селектор: подсвечиваем кнопку, если в её тексте есть имя активного агента */
+    [data-testid="stSidebar"] button div p:contains("{AGENT_REGISTRY[current_agent_key]['name']}") {{
+        background-color: #a01a1a !important;
+        color: white !important;
+    }}
+    /* Запасной вариант через data-testid и порядковый номер, но с поиском внутри блока кнопок */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] button:has(div p:contains("{AGENT_REGISTRY[current_agent_key]['name']}")) {{
         background-color: #a01a1a !important;
         color: white !important;
         border: 2px solid #801010 !important;
@@ -124,6 +139,11 @@ st.markdown(f"""
     [data-testid="column"] > div > div > div > div.stChatMessage {{
         width: 100% !important;
     }}
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-of-type({active_index + 1}) button {{
+        background-color: #a01a1a !important;
+        color: white !important;
+        border: 2px solid #801010 !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -138,19 +158,42 @@ st.sidebar.divider()
 st.sidebar.info(f"👤 Активен: {AGENT_REGISTRY[current_agent_key]['name']}")
 
 # ВЫБОР МОДЕЛИ (Model Override)
+from core.orchestrator_v2 import get_agent_setting, save_agent_setting
+
+# Список доступных моделей для выбора
 MODEL_OPTIONS = {
+    'gemini-2.1-v1beta': '💎 Gemini 1.5 Pro (Old)',
     'gemini-2.5-pro': '💎 Gemini 2.5 Pro',
     'gemini-2.5-flash': '⚡ Gemini 2.5 Flash',
-    'llama-3.3-70b-versatile': '🦙 Llama 3.3 70B (Groq)'
+    'llama-3.3-70b-versatile': '🦙 Llama 3.3 70B (Groq)',
+    'ollama/llama3.1:8b': '🏠 Llama 3.1 8B (Local GPU)',
+    'ollama/mistral-nemo': '🏠 Mistral Nemo (Local GPU)'
 }
+
+# Загружаем сохраненную модель для текущего агента
+saved_model = get_agent_setting(st.session_state.user_id, current_agent_key, 'selected_model')
+model_keys = list(MODEL_OPTIONS.keys())
+
+# Определяем индекс для отображения в селектбоксе
+if saved_model in model_keys:
+    default_index = model_keys.index(saved_model)
+else:
+    # Дефолтные значения если ничего не сохранено
+    if current_agent_key == 'german': default_index = model_keys.index('gemini-2.5-pro')
+    elif current_agent_key in ['vds_admin', 'local_admin']: default_index = model_keys.index('ollama/llama3.1:8b')
+    else: default_index = model_keys.index('gemini-2.5-flash')
 
 selected_model_label = st.sidebar.selectbox(
     "Выбор модели:",
-    options=list(MODEL_OPTIONS.keys()),
+    options=model_keys,
     format_func=lambda x: MODEL_OPTIONS[x],
-    index=1 if current_agent_key == 'german' else 0 # По умолчанию Flash для учителя (безопасно)
+    index=default_index
 )
+
+# Сохраняем выбор в session_state и БД
 st.session_state.model_override = selected_model_label
+if selected_model_label != saved_model:
+    save_agent_setting(st.session_state.user_id, current_agent_key, 'selected_model', selected_model_label)
 
 # Мониторинг локального сервера
 ollama_status = is_ollama_online()
