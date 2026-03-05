@@ -164,9 +164,20 @@ st.sidebar.toggle('🔊 Голос', key='voice_enabled')
 st.sidebar.divider()
 if st.sidebar.button('🔄 Обновить базу данных'):
     with st.spinner('Индексация...'):
-        cmd = 'python -c "from core.memory import index_directory; index_directory(r\'D:\\Users\\Lenovo\\Documents\\JobSearch\'); index_directory(r\'D:\\Users\\Lenovo\\Obsidian\')"'
-        subprocess.run(cmd, shell=True)
-        st.sidebar.success("Готово!")
+        # Используем пути из config, которые могут переопределяться через .env или ENV (Docker)
+        from config import config
+        from core.memory import index_directory
+        
+        # Индексируем по одному, чтобы избежать проблем с кавычками в subprocess
+        if config.job_search_path and os.path.exists(config.job_search_path):
+            index_directory(config.job_search_path)
+            st.sidebar.info(f"💼 Карьера: {os.path.basename(config.job_search_path)} - OK")
+            
+        if config.obsidian_vault_path and os.path.exists(config.obsidian_vault_path):
+            index_directory(config.obsidian_vault_path)
+            st.sidebar.info(f"📓 Obsidian: {os.path.basename(config.obsidian_vault_path)} - OK")
+            
+        st.sidebar.success("База данных обновлена!")
 
 with st.sidebar.expander("🛠 Отладка"):
     if st.button('🗑 Очистить историю'):
