@@ -15,38 +15,48 @@ from core.admin_tools import admin_tools
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 # --- DB PERSISTENCE ---
-DB_PATH = config.sqlite_db_path
+DB_PATH = os.path.join(os.getcwd(), config.sqlite_db_path)
 LOCAL_SERVER_URL = config.local_server_url
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    
-    # Сначала создаем таблицы, если их нет
-    cur.execute('''CREATE TABLE IF NOT EXISTS chat_history (
-        user_id TEXT, 
-        agent_type TEXT, 
-        role TEXT, 
-        content TEXT, 
-        timestamp DATETIME
-    )''')
-    
-    cur.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
-        user_id TEXT,
-        agent_type TEXT,
-        setting_key TEXT,
-        setting_value TEXT,
-        PRIMARY KEY (user_id, agent_type, setting_key)
-    )''')
-    
-    # Теперь проверяем и добавляем колонку model_name в chat_history
-    cur.execute("PRAGMA table_info(chat_history)")
-    columns = [col[1] for col in cur.fetchall()]
-    if 'model_name' not in columns:
-        cur.execute('ALTER TABLE chat_history ADD COLUMN model_name TEXT')
-    
-    conn.commit()
-    conn.close()
+    print(f"DEBUG: Initializing database at {DB_PATH}")
+    try:
+        # Убеждаемся, что директория существует
+        db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        # Сначала создаем таблицы, если их нет
+        cur.execute('''CREATE TABLE IF NOT EXISTS chat_history (
+            user_id TEXT, 
+            agent_type TEXT, 
+            role TEXT, 
+            content TEXT, 
+            timestamp DATETIME
+        )''')
+        
+        cur.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
+            user_id TEXT,
+            agent_type TEXT,
+            setting_key TEXT,
+            setting_value TEXT,
+            PRIMARY KEY (user_id, agent_type, setting_key)
+        )''')
+        
+        # Теперь проверяем и добавляем колонку model_name в chat_history
+        cur.execute("PRAGMA table_info(chat_history)")
+        columns = [col[1] for col in cur.fetchall()]
+        if 'model_name' not in columns:
+            cur.execute('ALTER TABLE chat_history ADD COLUMN model_name TEXT')
+        
+        conn.commit()
+        conn.close()
+        print("DEBUG: Database initialization successful")
+    except Exception as e:
+        print(f"DEBUG: DATABASE ERROR: {str(e)}")
 
 def save_message(user_id, agent_type, role, content, model_name=None):
     conn = sqlite3.connect(DB_PATH)
