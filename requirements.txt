@@ -19,3 +19,6 @@ langchain-community
 docx2txt
 pypdf
 requests
+fastapi
+uvicorn
+python-multipart
