@@ -12,17 +12,16 @@ class AdminTools:
     """
 
     @staticmethod
-    def check_connection(host_url: str) -> Dict[str, Any]:
-        """Проверка доступности узла (VDS или Local)."""
+    def check_connection(host_url: str) -> str:
+        """Проверка доступности узла (VDS или Local). Передайте полный URL, например http://10.0.0.2:11434"""
+        if not host_url.startswith("http"):
+            host_url = f"http://{host_url}"
+        
         try:
             response = requests.get(host_url, timeout=5)
-            return {
-                "status": "online" if response.status_code == 200 else "error",
-                "code": response.status_code,
-                "url": host_url
-            }
+            return f"Узел {host_url} ДОСТУПЕН. Код ответа: {response.status_code}"
         except Exception as e:
-            return {"status": "offline", "error": str(e), "url": host_url}
+            return f"Узел {host_url} НЕДОСТУПЕН. Ошибка: {str(e)}"
 
     @staticmethod
     def get_docker_status(is_local: bool = False) -> str:
