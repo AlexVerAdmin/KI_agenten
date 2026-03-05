@@ -21,23 +21,16 @@ LOCAL_SERVER_URL = config.local_server_url
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    # Проверка и добавление колонки model_name в chat_history, если её нет
-    cur.execute("PRAGMA table_info(chat_history)")
-    columns = [col[1] for col in cur.fetchall()]
-    if 'model_name' not in columns:
-        cur.execute('ALTER TABLE chat_history ADD COLUMN model_name TEXT')
     
-    # Таблица истории (основная структура)
+    # Сначала создаем таблицы, если их нет
     cur.execute('''CREATE TABLE IF NOT EXISTS chat_history (
         user_id TEXT, 
         agent_type TEXT, 
         role TEXT, 
         content TEXT, 
-        timestamp DATETIME,
-        model_name TEXT
+        timestamp DATETIME
     )''')
     
-    # Таблица настроек агентов
     cur.execute('''CREATE TABLE IF NOT EXISTS agent_settings (
         user_id TEXT,
         agent_type TEXT,
@@ -45,6 +38,13 @@ def init_db():
         setting_value TEXT,
         PRIMARY KEY (user_id, agent_type, setting_key)
     )''')
+    
+    # Теперь проверяем и добавляем колонку model_name в chat_history
+    cur.execute("PRAGMA table_info(chat_history)")
+    columns = [col[1] for col in cur.fetchall()]
+    if 'model_name' not in columns:
+        cur.execute('ALTER TABLE chat_history ADD COLUMN model_name TEXT')
+    
     conn.commit()
     conn.close()
 
