@@ -10,7 +10,13 @@ DB_DIR = os.path.join(os.getcwd(), "chroma_db")
 _embeddings = None
 
 def get_embeddings():
-    """Lazy loader for embeddings to avoid startup delay."""
+    """Lazy loader for embeddings. Skip on VDS if remote worker is active to save RAM."""
+    # Если мы на VDS и есть удаленный воркер, нам не нужны локальные эмбеддинги
+    remote_worker = os.getenv("REMOTE_WORKER_URL", "none")
+    if remote_worker != "none":
+        logging.info("🚀 VDS Mode: Skipping local embedding model (using remote worker)")
+        return None
+
     from langchain_huggingface import HuggingFaceEmbeddings
     global _embeddings
     if _embeddings is None:
