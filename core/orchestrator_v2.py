@@ -109,7 +109,23 @@ def get_model(purpose='general', model_override=None):
             google_api_key=config.google_api_key,
             convert_system_message_to_human=True,
             version="v1beta"  # Для моделей 2.5 обязательна v1beta
-        )в зависимости от типа агента
+        )
+    return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
+
+def is_ollama_online():
+    """Проверка доступности локального Ollama сервера (GPU-нода)"""
+    try:
+        response = requests.get(f"{config.local_server_url}/api/tags", timeout=2)
+        return response.status_code == 200
+    except:
+        return False
+
+def node_handler(state: AgentState):
+    agent_type = state.get('agent_type', 'general')
+    model_override = state.get('model_override')
+    llm = get_model(agent_type, model_override)
+    
+    # Привязываем инструменты в зависимости от типа агента
     if agent_type == 'german':
         llm_with_tools = llm.bind_tools(OBSIDIAN_TOOLS)
     elif agent_type in ['vds_admin', 'local_admin']:
