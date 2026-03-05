@@ -90,8 +90,8 @@ def get_model(purpose='general', model_override=None):
 
     model_name = model_override
     if not model_name:
-        if purpose == 'german': model_name = 'gemini-1.5-pro'
-        elif purpose == 'career': model_name = 'gemini-1.5-flash'
+        if purpose == 'german': model_name = 'gemini-2.5-pro'
+        elif purpose == 'career': model_name = 'gemini-2.5-flash'
         else: return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
 
     if 'gemini' in model_name:
@@ -99,7 +99,7 @@ def get_model(purpose='general', model_override=None):
             model=model_name, 
             google_api_key=config.google_api_key,
             convert_system_message_to_human=True,
-            version="v1"  # Явно заставляем использовать стабильную версию v1
+            version="v1beta"  # Для моделей 2.5 обязательна v1beta
         )
     return ChatGroq(model_name='llama-3.3-70b-versatile', api_key=config.groq_api_key)
 
@@ -172,13 +172,7 @@ def process_message(text, user_id, agent_type='general', model_override=None, **
         if m['role'] == 'user': msgs.append(HumanMessage(content=m['content']))
         else: msgs.append(AIMessage(content=m['content']))
     inputs = {'messages': msgs, 'agent_type': agent_type, 'model_override': model_override}
-    # Увеличиваем лимит рекурсии до 50 и добавляем обработку ошибок
-    try:
-        res = app.invoke(inputs, config={"recursion_limit": 50})
-    except Exception as e:
-        logging.error(f"Graph execution failed: {e}")
-        return {'text': f"Ошибка в логике агента: {str(e)}", 'active_node': agent_type}
-        
+    res = app.invoke(inputs)
     ai_text = res['messages'][-1].content
     save_message(user_id, agent_type, 'assistant', ai_text)
     return {'text': ai_text, 'active_node': agent_type}

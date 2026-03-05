@@ -139,8 +139,8 @@ st.sidebar.info(f"👤 Активен: {AGENT_REGISTRY[current_agent_key]['name'
 
 # ВЫБОР МОДЕЛИ (Model Override)
 MODEL_OPTIONS = {
-    'gemini-1.5-pro': '💎 Gemini 1.5 Pro',
-    'gemini-1.5-flash': '⚡ Gemini 1.5 Flash',
+    'gemini-2.5-pro': '💎 Gemini 2.5 Pro',
+    'gemini-2.5-flash': '⚡ Gemini 2.5 Flash',
     'llama-3.3-70b-versatile': '🦙 Llama 3.3 70B (Groq)'
 }
 
