@@ -283,7 +283,6 @@ if prompt := st.chat_input('Сообщение...'):
     st.chat_message('user').markdown(prompt)
     with st.chat_message('assistant'):
         with st.spinner():
-            # Передаем выбранную модель в процесс обработки сообщения
             resp = process_message(
                 prompt, 
                 st.session_state.user_id, 
@@ -291,32 +290,39 @@ if prompt := st.chat_input('Сообщение...'):
                 model_override=st.session_state.get('model_override')
             )
             
-            # --- ОТОБРАЖЕНИЕ КНОПОК ДЛЯ НОВОГО СООБЩЕНИЯ ---
+            # --- ОТЛАДКА ПРЯМО В ИНТЕРФЕЙСЕ (ВРЕМЕННО) ---
+            # st.write(f"DEBUG: Response contains 'pending_confirmation': {'pending_confirmation' in resp['text']}")
+            
             st.markdown(resp['text'])
             
-            if "pending_confirmation" in resp['text']:
+            # ПРОВЕРКА: Если в тексте есть JSON или упоминание подтверждения
+            if "pending_confirmation" in resp['text'] or '"status":' in resp['text']:
                 try:
                     import re, json
-                    match = re.search(r'\{.*"status":\s*"pending_confirmation".*\}', resp['text'], re.DOTALL)
+                    # Ищем JSON блок более жадно
+                    match = re.search(r'\{.*\}', resp['text'], re.DOTALL)
                     if match:
                         tool_data = json.loads(match.group())
-                        cmd = tool_data.get('command')
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("✅ Разрешить исполнение", key="new_confirm_btn"):
-                                from core.admin_tools import admin_tools
-                                with st.spinner("Выполнение..."):
-                                    result = admin_tools.execute_confirmed_command(cmd)
-                                    st.info(result)
-                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{result}")
+                        if tool_data.get('status') == 'pending_confirmation' or 'command' in tool_data:
+                            cmd = tool_data.get('command', 'unknown')
+                            st.warning(f"⚠️ Требуется подтверждение для команды: `{cmd}`")
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("✅ РАЗРЕШИТЬ ИСПОЛНЕНИЕ", key="btn_confirm_now"):
+                                    from core.admin_tools import admin_tools
+                                    with st.spinner("Выполнение..."):
+                                        result = admin_tools.execute_confirmed_command(cmd)
+                                        st.success("Выполнено!")
+                                        st.code(result)
+                                        save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{result}")
+                                        st.rerun()
+                            with col2:
+                                if st.button("❌ ОТКЛОНИТЬ", key="btn_reject_now"):
+                                    save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отклонена пользователем.")
                                     st.rerun()
-                        with col2:
-                            if st.button("❌ Отклонить", key="new_reject_btn"):
-                                save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отклонена пользователем.")
-                                st.rerun()
                 except Exception as e:
-                    st.error(f"Ошибка HITL: {e}")
+                    st.info("Агент предложил команду. Вы можете подтвердить её, введя 'выполняй' или нажав кнопку в истории.")
 
             agent_name = AGENT_REGISTRY.get(resp.get('active_node'), {}).get('name', 'Оркестратор')
             st.caption(f"👤 {agent_name} | 🕒 Только что")
