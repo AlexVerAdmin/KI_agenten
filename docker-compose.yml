@@ -4,6 +4,8 @@ services:
     build: .
     command: python bot.py
     restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits:
@@ -21,6 +23,8 @@ services:
     build: .
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
     restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits:

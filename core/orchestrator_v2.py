@@ -201,19 +201,20 @@ def get_model(purpose='general', model_override=None, user_id=None):
         elif purpose in ['vds_admin', 'local_admin']: model_name = 'ollama/llama3.1:8b'
         else: model_name = 'llama-3.3-70b-versatile'
 
-    # Поддержка Ollama через LangChain (с проверкой на доступность)
+    # Поддержка Ollama через LangChain (СТРОГО ЛОКАЛЬНО ДЛЯ ПРИВАТНОСТИ)
     if model_name.startswith('ollama/'):
         if not is_ollama_online():
-            print(f"⚠️ DEBUG: Ollama is OFFLINE at {config.local_server_url}. Fallback to Groq.")
-            return ChatGroq(model_name="llama-3.3-70b-versatile", api_key=config.groq_api_key)
+            error_msg = f"❌ ОШИБКА КОНФИДЕНЦИАЛЬНОСТИ: Локальный сервер Ollama ({config.local_server_url}) недоступен. Запрос прерван для защиты данных."
+            print(f"DEBUG: {error_msg}")
+            raise ConnectionError(error_msg)
 
-        print(f"DEBUG: Using Ollama model: {model_name} at {config.local_server_url}")
+        print(f"DEBUG: Using Local Ollama model: {model_name} at {config.local_server_url}")
         from langchain_ollama import ChatOllama
         actual_model = model_name.replace('ollama/', '')
         return ChatOllama(
             model=actual_model, 
             base_url=config.local_server_url,
-            timeout=45  # Сокращаем таймаут до 45 сек
+            timeout=30  # Ждем не более 30 сек
         )
 
     if 'gemini' in model_name:
