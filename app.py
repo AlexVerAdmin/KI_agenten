@@ -31,7 +31,7 @@ app_engine, obsidian_engine = init_system()
 
 from utils.audio_utils import text_to_speech
 
-st.set_page_config(page_title='Antigravity Agents', layout='wide')
+st.set_page_config(page_title='Personal Agents', layout='wide')
 
 # ФИКС ИСТОРИИ
 if 'user_id' not in st.session_state:

@@ -1,6 +1,6 @@
-# Antigravity Agents 🚀 — Distributed Multi-Agent AI System
+# Personal Agents 🚀 — Distributed Multi-Agent AI System
 
-**Antigravity Agents** — это высокопроизводительная гибридная ИИ-платформа, объединяющая облачные вычисления (VDS) и мощности домашней лаборатории (Private Home Lab) в единую экосистему. Проект реализует концепцию **Multi-Agent RAG (Retrieval-Augmented Generation)** для управления персональными знаниями (Obsidian, документы) и автоматизации экспертных задач.
+**Personal Agents** — это высокопроизводительная гибридная ИИ-платформа, объединяющая облачные вычисления (VDS) и мощности домашней лаборатории (Private Home Lab) в единую экосистему. Проект реализует концепцию **Multi-Agent RAG (Retrieval-Augmented Generation)** для управления персональными знаниями (Obsidian, документы) и автоматизации экспертных задач.
 
 ---
 
