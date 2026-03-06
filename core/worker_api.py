@@ -4,7 +4,7 @@ import uvicorn
 from core.memory import vector_db_search_tool, index_knowledge_base
 from config import config
 
-app = FastAPI(title="Antigravity RAG Worker (Home Lab)")
+app = FastAPI(title="Personal RAG Worker (Home Lab)")
 
 # Простейшая защита эндпоинта
 API_SECRET = os.getenv("API_SECRET", "change_me_in_env")

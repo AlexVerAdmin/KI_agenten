@@ -1,6 +1,6 @@
 @echo off
 :: DIRECT RUN: This bypasses ExecutionPolicy because it doesn't call .ps1 scripts
-echo [1/1] Starting Antigravity Telegram Bot...
+echo [1/1] Starting Personal Telegram Bot...
 if not exist "venv\Scripts\python.exe" (
     echo [ERROR] Virtual environment not found.
     pause
