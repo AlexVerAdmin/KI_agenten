@@ -203,9 +203,14 @@ def get_model(purpose='general', model_override=None, user_id=None):
 
     # Поддержка Ollama через LangChain
     if model_name.startswith('ollama/'):
+        print(f"DEBUG: Using Ollama model: {model_name} at {config.local_server_url}")
         from langchain_ollama import ChatOllama
         actual_model = model_name.replace('ollama/', '')
-        return ChatOllama(model=actual_model, base_url=config.local_server_url)
+        return ChatOllama(
+            model=actual_model, 
+            base_url=config.local_server_url,
+            timeout=120  # Добавляем таймаут 2 минуты
+        )
 
     if 'gemini' in model_name:
         return ChatGoogleGenerativeAI(
@@ -263,8 +268,16 @@ def node_handler(state: AgentState):
     }
     
     messages = [SystemMessage(content=system_prompts.get(agent_type, system_prompts['general']))] + state['messages']
-    response = llm_with_tools.invoke(messages)
-    return {'messages': [response]}
+    
+    print(f"DEBUG: Invoking LLM for agent {agent_type}...")
+    try:
+        response = llm_with_tools.invoke(messages)
+        print(f"DEBUG: LLM response received.")
+        return {'messages': [response]}
+    except Exception as e:
+        print(f"DEBUG: LLM ERROR: {str(e)}")
+        error_msg = AIMessage(content=f"⚠️ Произошла ошибка при обращении к модели: {str(e)}")
+        return {'messages': [error_msg]}
 
 # Реакция на инструменты (Tool Node)
 def tool_node(state: AgentState):
