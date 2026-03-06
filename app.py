@@ -301,51 +301,61 @@ if prompt := st.chat_input('Сообщение...'):
             is_confirmation_request = (
                 "pending_confirmation" in full_text or 
                 "request_shell_execution" in full_text or
-                '"command":' in full_text or
-                "Разрешить исполнение" in full_text or
-                '"arguments":' in full_text
+                "command" in full_text or
+                "arguments" in full_text
             )
             
             if is_confirmation_request:
                 try:
-                    # Ищем все JSON объекты в тексте
-                    json_matches = re.findall(r'\{.*?\}', full_text, re.DOTALL)
+                    # УЛУЧШЕННЫЙ ПОИСК: Ищем все вхождения JSON структур
+                    # Сначала пробуем найти список [...], если модель вернула его
+                    list_match = re.search(r'\[\s*\{.*\}\s*\]', full_text, re.DOTALL)
                     commands_to_show = []
                     
-                    if json_matches:
-                        for match_str in json_matches:
-                            try:
-                                data = json.loads(match_str)
-                                # Mistral может использовать "arguments" вместо "args" или "command" напрямую
-                                cmd = data.get('command')
-                                if not cmd and 'arguments' in data:
-                                    cmd = data['arguments'].get('command')
-                                elif not cmd and 'args' in data:
-                                    cmd = data['args'].get('command')
-                                
-                                if cmd:
-                                    commands_to_show.append(cmd)
-                            except: continue
+                    if list_match:
+                        try:
+                            list_data = json.loads(list_match.group())
+                            if isinstance(list_data, list):
+                                for item in list_data:
+                                    cmd = item.get('command') or item.get('arguments', {}).get('command') or item.get('args', {}).get('command')
+                                    if cmd: commands_to_show.append(cmd)
+                        except: pass
+                    
+                    # Если как список не распарсилось, ищем отдельные объекты { }
+                    if not commands_to_show:
+                        json_matches = re.findall(r'\{[^{}]*\}', full_text, re.DOTALL)
+                        if json_matches:
+                            for match_str in json_matches:
+                                try:
+                                    data = json.loads(match_str)
+                                    cmd = data.get('command') or data.get('arguments', {}).get('command') or data.get('args', {}).get('command')
+                                    if cmd: commands_to_show.append(cmd)
+                                except: continue
                     
                     if commands_to_show:
+                        st.subheader("🛠 Подтверждение команд")
                         for idx, cmd in enumerate(commands_to_show):
-                            st.info(f"📂 Запрос на выполнение #{idx+1}: `{cmd}`")
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                if st.button(f"✅ ВЫПОЛНИТЬ #{idx+1}", key=f"confirm_{idx}_{hash(cmd)}", use_container_width=True):
-                                    from core.admin_tools import admin_tools
-                                    with st.spinner("Работаю..."):
-                                        res = admin_tools.execute_confirmed_command(cmd)
-                                        st.success("Результат получен!")
-                                        st.code(res)
-                                        save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{res}")
+                            with st.container(border=True):
+                                st.write(f"**Команда #{idx+1}:** `{cmd}`")
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    if st.button(f"✅ ВЫПОЛНИТЬ #{idx+1}", key=f"force_confirm_{idx}_{hash(cmd)}", use_container_width=True):
+                                        from core.admin_tools import admin_tools
+                                        with st.spinner(f"Выполняю {cmd}..."):
+                                            res = admin_tools.execute_confirmed_command(cmd)
+                                            st.success("Готово!")
+                                            st.code(res)
+                                            # Сохраняем результат
+                                            save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{res}")
+                                            # Не делаем rerun сразу, чтобы дать нажать остальные кнопки, если их много
+                                            # Но для обновления истории лучше сделать
+                                            st.rerun()
+                                with c2:
+                                    if st.button(f"❌ ОТКЛОНИТЬ #{idx+1}", key=f"force_reject_{idx}_{hash(cmd)}", use_container_width=True):
+                                        save_message(st.session_state.user_id, current_agent_key, 'user', f"Операция {cmd} отклонена.")
                                         st.rerun()
-                            with c2:
-                                if st.button(f"❌ ОТКЛОНИТЬ #{idx+1}", key=f"reject_{idx}_{hash(cmd)}", use_container_width=True):
-                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Операция {cmd} отклонена.")
-                                    st.rerun()
                     else:
-                        st.warning("🤖 Модель предложила выполнить команду, но не передала её в верном JSON формате.")
+                        st.warning("🤖 Модель предложила выполнить команду, но я не смог извлечь её параметры автоматически.")
                 except Exception as hitl_err:
                     st.error(f"Ошибка HITL: {hitl_err}")
 
