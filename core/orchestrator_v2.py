@@ -58,6 +58,9 @@ def init_db():
     except Exception as e:
         print(f"DEBUG: DATABASE ERROR: {str(e)}")
 
+# Вызываем инициализацию при импорте модуля
+init_db()
+
 def save_message(user_id, agent_type, role, content, model_name=None):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -193,7 +196,7 @@ def get_model(purpose='general', model_override=None, user_id=None):
         model_name = get_agent_setting(user_id, purpose, 'selected_model')
 
     if not model_name:
-        if purpose == 'german': model_name = 'gemini-2.5-pro'
+        if purpose == 'german': model_name = 'gemini-3.1-pro-preview'
         elif purpose == 'career': model_name = 'gemini-2.5-flash'
         elif purpose in ['vds_admin', 'local_admin']: model_name = 'ollama/llama3.1:8b'
         else: model_name = 'llama-3.3-70b-versatile'

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     job_search_path: str = ""
     google_api_key: str = ""
     github_copilot_token: str = ""
-    sqlite_db_path: str = "memory_v2.sqlite"
+    sqlite_db_path: str = "data/memory_v2.sqlite"
     local_server_url: str = "http://localhost:11434"
     remote_worker_url: str = "none"
     api_secret: str = "change_me_in_env"

@@ -162,10 +162,13 @@ from core.orchestrator_v2 import get_agent_setting, save_agent_setting
 
 # Список доступных моделей для выбора
 MODEL_OPTIONS = {
-    'gemini-2.1-v1beta': '💎 Gemini 1.5 Pro (Old)',
-    'gemini-2.5-pro': '💎 Gemini 2.5 Pro',
-    'gemini-2.5-flash': '⚡ Gemini 2.5 Flash',
+    'gemini-3.1-pro-preview': '🏆 Gemini 3.1 Pro (Preview)',
+    'gemini-3-flash-preview': '🚀 Gemini 3 Flash (Preview)',
+    'gemini-2.5-pro': '💎 Gemini 2.5 Pro (Stable)',
+    'gemini-2.5-flash': '⚡ Gemini 2.5 Flash (Stable)',
+    'gemini-2.0-flash': '🚀 Gemini 2.0 Flash',
     'llama-3.3-70b-versatile': '🦙 Llama 3.3 70B (Groq)',
+    'llama-3.1-70b-versatile': '🦙 Llama 3.1 70B (Groq)',
     'ollama/llama3.1:8b': '🏠 Llama 3.1 8B (Local GPU)',
     'ollama/mistral-nemo': '🏠 Mistral Nemo (Local GPU)'
 }
@@ -179,9 +182,9 @@ if saved_model in model_keys:
     default_index = model_keys.index(saved_model)
 else:
     # Дефолтные значения если ничего не сохранено
-    if current_agent_key == 'german': default_index = model_keys.index('gemini-2.5-pro')
+    if current_agent_key == 'german': default_index = model_keys.index('gemini-3.1-pro-preview')
     elif current_agent_key in ['vds_admin', 'local_admin']: default_index = model_keys.index('ollama/llama3.1:8b')
-    else: default_index = model_keys.index('gemini-2.5-flash')
+    else: default_index = model_keys.index('llama-3.3-70b-versatile')
 
 selected_model_label = st.sidebar.selectbox(
     "Выбор модели:",
