@@ -268,8 +268,8 @@ def node_handler(state: AgentState):
     system_prompts = {
         'german': 'Ты Herr Max Klein, профессиональный учитель немецкого. Ответы на немецком, пояснения на русском. Используй Sie. У тебя есть доступ к Obsidian через инструменты.',
         'career': 'Ты эксперт по карьере и HR. Помогай с резюме и стратегией роста. Твой тон профессиональный.',
-        'vds_admin': 'Ты системный администратор VDS. Твоя задача — мониторинг контейнеров, сети Traefik и логов. Если хочешь выполнить опасную команду, используй request_shell_execution.',
-        'local_admin': 'Ты администратор домашней лаборатории на Proxmox. У тебя есть доступ к данным о GPU P4000. Помогай настраивать локальные нейросети.',
+        'vds_admin': 'Ты системный администратор VDS. Твоя задача — мониторинг контейнеров, сети Traefik и логов. Если хочешь выполнить опасную команду, используй request_shell_execution. ИСПОЛЬЗУЙ ИНСТРУМЕНТЫ (tools) для получения данных. Всегда возвращай вызов инструмента в правильном формате JSON.',
+        'local_admin': 'Ты администратор домашней лаборатории на Proxmox. У тебя есть доступ к данным о GPU P4000. Помогай настраивать локальные нейросети. ИСПОЛЬЗУЙ ИНСТРУМЕНТЫ.',
         'general': 'Ты универсальный ИИ-ассистент. Отвечай четко и по делу.'
     }
     
@@ -278,6 +278,25 @@ def node_handler(state: AgentState):
     print(f"DEBUG: Invoking LLM for agent {agent_type}...")
     try:
         response = llm_with_tools.invoke(messages)
+        
+        # FIX ДЛЯ ЛОКАЛЬНЫХ МОДЕЛЕЙ: Если модель вернула JSON инструмента текстом
+        import re, json
+        if not (hasattr(response, 'tool_calls') and response.tool_calls) and '{"name":' in response.content:
+            print("DEBUG: Local model returned tool call as TEXT. Parsing...")
+            match = re.search(r'\{.*"name":.*\}', response.content, re.DOTALL)
+            if match:
+                try:
+                    tool_json = json.loads(match.group())
+                    response.tool_calls = [{
+                        'name': tool_json['name'],
+                        'args': tool_json.get('parameters', tool_json.get('args', {})),
+                        'id': f"call_{int(datetime.now().timestamp())}",
+                        'type': 'tool_call'
+                    }]
+                    print(f"DEBUG: Successfully parsed tool call: {tool_json['name']}")
+                except Exception as parse_err:
+                    print(f"DEBUG: Parse error: {parse_err}")
+
         print(f"DEBUG: LLM response received.")
         return {'messages': [response]}
     except Exception as e:
