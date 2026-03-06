@@ -290,7 +290,34 @@ if prompt := st.chat_input('Сообщение...'):
                 agent_type=current_agent_key,
                 model_override=st.session_state.get('model_override')
             )
+            
+            # --- ОТОБРАЖЕНИЕ КНОПОК ДЛЯ НОВОГО СООБЩЕНИЯ ---
             st.markdown(resp['text'])
+            
+            if "pending_confirmation" in resp['text']:
+                try:
+                    import re, json
+                    match = re.search(r'\{.*"status":\s*"pending_confirmation".*\}', resp['text'], re.DOTALL)
+                    if match:
+                        tool_data = json.loads(match.group())
+                        cmd = tool_data.get('command')
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("✅ Разрешить исполнение", key="new_confirm_btn"):
+                                from core.admin_tools import admin_tools
+                                with st.spinner("Выполнение..."):
+                                    result = admin_tools.execute_confirmed_command(cmd)
+                                    st.info(result)
+                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{result}")
+                                    st.rerun()
+                        with col2:
+                            if st.button("❌ Отклонить", key="new_reject_btn"):
+                                save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отклонена пользователем.")
+                                st.rerun()
+                except Exception as e:
+                    st.error(f"Ошибка HITL: {e}")
+
             agent_name = AGENT_REGISTRY.get(resp.get('active_node'), {}).get('name', 'Оркестратор')
             st.caption(f"👤 {agent_name} | 🕒 Только что")
             
