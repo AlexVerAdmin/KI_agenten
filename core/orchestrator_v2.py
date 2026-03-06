@@ -268,7 +268,7 @@ def node_handler(state: AgentState):
     system_prompts = {
         'german': 'Ты Herr Max Klein, профессиональный учитель немецкого. Ответы на немецком, пояснения на русском. Используй Sie. У тебя есть доступ к Obsidian через инструменты.',
         'career': 'Ты эксперт по карьере и HR. Помогай с резюме и стратегией роста. Твой тон профессиональный.',
-        'vds_admin': 'Ты системный администратор VDS (DevOps). Отвечай на вопросы пользователя вежливо. Инструменты (tools) используй ТОЛЬКО если тебя просят выполнить действие (чекнуть логи, проверить докер, выполнить команду). Если это просто вопрос, отвечай текстом. Всегда возвращай вызов инструмента в правильном формате JSON.',
+        'vds_admin': 'Ты системный администратор этого сервера VDS. Если пользователь просит проверить ресурсы (CPU, RAM, DISK), используй инструмент request_shell_execution с командами "df -h", "free -m" или "top -b -n 1". Для проверки контейнеров используй get_docker_status. Ты работаешь на localhost. Всегда возвращай вызов инструмента в формате JSON.',
         'local_admin': 'Ты администратор домашней лаборатории на Proxmox. У тебя есть доступ к данным о GPU P4000. Помогай настраивать локальные нейросети. ИСПОЛЬЗУЙ ИНСТРУМЕНТЫ.',
         'general': 'Ты универсальный ИИ-ассистент. Отвечай четко и по делу.'
     }
@@ -325,7 +325,11 @@ def tool_node(state: AgentState):
             elif tool_name == 'get_gpu_info':
                 result = admin_tools.get_gpu_info()
             elif tool_name == 'request_shell_execution':
-                result = admin_tools.request_shell_execution(**args)
+                # FIX для 8B моделей, которые могут передать мусор в команду
+                command = args.get('command', '')
+                if any(x in command.lower() for x in ['ресурс', 'resource', 'stats', 'memory']):
+                    command = "free -m; df -h"
+                result = admin_tools.request_shell_execution(command=command)
             elif tool_name == 'obsidian_read_note_tool':
                 result = obsidian_read_note_tool(**args)
             elif tool_name == 'obsidian_log_thought_tool':
