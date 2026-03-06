@@ -238,6 +238,33 @@ for msg in history:
     with st.chat_message('user' if is_user else 'assistant'):
         st.markdown(msg['content'])
         
+        # --- HITL (Human-in-the-Loop) Кнопки подтверждения ---
+        if not is_user and "pending_confirmation" in msg['content']:
+            try:
+                # Извлекаем данные из сообщения (оно сохранено как строка-json или содержит его)
+                import re, json
+                match = re.search(r'\{.*"status":\s*"pending_confirmation".*\}', msg['content'], re.DOTALL)
+                if match:
+                    tool_data = json.loads(match.group())
+                    cmd = tool_data.get('command')
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Разрешить", key=f"confirm_{msg.get('timestamp')}_{hash(cmd)}"):
+                            from core.admin_tools import admin_tools
+                            with st.spinner("Выполнение..."):
+                                result = admin_tools.execute_confirmed_command(cmd)
+                                st.info(result)
+                                # Сохраняем результат в историю, чтобы агент его увидел
+                                save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{result}")
+                                st.rerun()
+                    with col2:
+                        if st.button("❌ Отклонить", key=f"reject_{msg.get('timestamp')}_{hash(cmd)}"):
+                            save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отклонена пользователем.")
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Ошибка отрисовки кнопок: {e}")
+
         # Исправляем отображение имен и времени
         display_name = "Вы" if is_user else AGENT_REGISTRY.get(msg['agent'], {}).get('name', 'Оркестратор')
         
