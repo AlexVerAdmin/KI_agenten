@@ -238,32 +238,53 @@ for msg in history:
     with st.chat_message('user' if is_user else 'assistant'):
         st.markdown(msg['content'])
         
-        # --- HITL (Human-in-the-Loop) Кнопки подтверждения ---
-        if not is_user and "pending_confirmation" in msg['content']:
+        # --- HITL (Human-in-the-Loop) Кнопки подтверждения в ИСТОРИИ ---
+        if not is_user:
             try:
-                # Извлекаем данные из сообщения (оно сохранено как строка-json или содержит его)
                 import re, json
-                match = re.search(r'\{.*"status":\s*"pending_confirmation".*\}', msg['content'], re.DOTALL)
-                if match:
-                    tool_data = json.loads(match.group())
-                    cmd = tool_data.get('command')
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("✅ Разрешить", key=f"confirm_{msg.get('timestamp')}_{hash(cmd)}"):
-                            from core.admin_tools import admin_tools
-                            with st.spinner("Выполнение..."):
-                                result = admin_tools.execute_confirmed_command(cmd)
-                                st.info(result)
-                                # Сохраняем результат в историю, чтобы агент его увидел
-                                save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{result}")
-                                st.rerun()
-                    with col2:
-                        if st.button("❌ Отклонить", key=f"reject_{msg.get('timestamp')}_{hash(cmd)}"):
-                            save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отклонена пользователем.")
-                            st.rerun()
+                full_text = msg['content']
+                # Ищем JSON список или отдельные объекты
+                commands_to_show = []
+                list_match = re.search(r'\[\s*\{.*\}\s*\]', full_text, re.DOTALL)
+                if list_match:
+                    try:
+                        list_data = json.loads(list_match.group())
+                        if isinstance(list_data, list):
+                            for item in list_data:
+                                cmd = item.get('command') or item.get('arguments', {}).get('command') or item.get('args', {}).get('command')
+                                if cmd: commands_to_show.append(cmd)
+                    except: pass
+                
+                if not commands_to_show:
+                    json_matches = re.findall(r'\{[^{}]*\}', full_text, re.DOTALL)
+                    for match_str in json_matches:
+                        try:
+                            data = json.loads(match_str)
+                            cmd = data.get('command') or data.get('arguments', {}).get('command') or data.get('args', {}).get('command')
+                            if cmd and cmd not in commands_to_show: commands_to_show.append(cmd)
+                        except: continue
+
+                if commands_to_show:
+                    for idx, cmd in enumerate(commands_to_show):
+                        with st.container(border=True):
+                            st.write(f"**Команда #{idx+1}:** `{cmd}`")
+                            c1, c2 = st.columns(2)
+                            ts_key = msg.get('timestamp', 'now').replace(' ', '_').replace(':', '_')
+                            with c1:
+                                if st.button(f"✅ ВЫПОЛНИТЬ #{idx+1}", key=f"hist_confirm_{ts_key}_{idx}_{hash(cmd)}", use_container_width=True):
+                                    from core.admin_tools import admin_tools
+                                    with st.spinner("Выполняю..."):
+                                        res = admin_tools.execute_confirmed_command(cmd)
+                                        st.success("Готово!")
+                                        st.code(res)
+                                        save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{res}")
+                                        st.rerun()
+                            with c2:
+                                if st.button(f"❌ ОТКЛОНИТЬ #{idx+1}", key=f"hist_reject_{ts_key}_{idx}_{hash(cmd)}", use_container_width=True):
+                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Операция {cmd} отклонена.")
+                                    st.rerun()
             except Exception as e:
-                st.error(f"Ошибка отрисовки кнопок: {e}")
+                pass # Игнорируем ошибки отрисовки в истории
 
         # Исправляем отображение имен и времени
         display_name = "Вы" if is_user else AGENT_REGISTRY.get(msg['agent'], {}).get('name', 'Оркестратор')
