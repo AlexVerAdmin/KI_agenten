@@ -290,39 +290,60 @@ if prompt := st.chat_input('Сообщение...'):
                 model_override=st.session_state.get('model_override')
             )
             
-            # --- ОТЛАДКА ПРЯМО В ИНТЕРФЕЙСЕ (ВРЕМЕННО) ---
-            # st.write(f"DEBUG: Response contains 'pending_confirmation': {'pending_confirmation' in resp['text']}")
+            # --- ВЫВОД ОТВЕТА АССИСТЕНТА ---
+            full_text = resp['text']
+            st.markdown(full_text)
             
-            st.markdown(resp['text'])
+            # --- НОВАЯ УЛЬТРА-АГРЕССИВНАЯ ЛОГИКА HITL КНОПОК ---
+            import re, json
             
-            # ПРОВЕРКА: Если в тексте есть JSON или упоминание подтверждения
-            if "pending_confirmation" in resp['text'] or '"status":' in resp['text']:
+            # Список индикаторов, что модель хочет выполнить команду
+            is_confirmation_request = (
+                "pending_confirmation" in full_text or 
+                "request_shell_execution" in full_text or
+                '"command":' in full_text or
+                "Разрешить исполнение" in full_text
+            )
+            
+            if is_confirmation_request:
                 try:
-                    import re, json
-                    # Ищем JSON блок более жадно
-                    match = re.search(r'\{.*\}', resp['text'], re.DOTALL)
-                    if match:
-                        tool_data = json.loads(match.group())
-                        if tool_data.get('status') == 'pending_confirmation' or 'command' in tool_data:
-                            cmd = tool_data.get('command', 'unknown')
-                            st.warning(f"⚠️ Требуется подтверждение для команды: `{cmd}`")
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("✅ РАЗРЕШИТЬ ИСПОЛНЕНИЕ", key="btn_confirm_now"):
-                                    from core.admin_tools import admin_tools
-                                    with st.spinner("Выполнение..."):
-                                        result = admin_tools.execute_confirmed_command(cmd)
-                                        st.success("Выполнено!")
-                                        st.code(result)
-                                        save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{result}")
-                                        st.rerun()
-                            with col2:
-                                if st.button("❌ ОТКЛОНИТЬ", key="btn_reject_now"):
-                                    save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отклонена пользователем.")
+                    # Пробуем найти JSON структуру { ... }
+                    json_matches = re.findall(r'\{[^{}]*\}', full_text, re.DOTALL)
+                    tool_data = None
+                    
+                    if json_matches:
+                        for match_str in json_matches:
+                            try:
+                                data = json.loads(match_str)
+                                if 'command' in data or 'parameters' in data:
+                                    tool_data = data
+                                    break
+                            except: continue
+                    
+                    # Если нашли команду - рисуем кнопки
+                    if tool_data and 'command' in tool_data:
+                        cmd = tool_data['command']
+                        # Принудительная отрисовка кнопок БЕЗ условий селектора
+                        st.info(f"📂 Запрос на выполнение: `{cmd}`")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("✅ ВЫПОЛНИТЬ СЕЙЧАС", key="force_confirm_btn", use_container_width=True):
+                                from core.admin_tools import admin_tools
+                                with st.spinner("Работаю..."):
+                                    res = admin_tools.execute_confirmed_command(cmd)
+                                    st.success("Результат получен!")
+                                    st.code(res)
+                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{res}")
                                     st.rerun()
-                except Exception as e:
-                    st.info("Агент предложил команду. Вы можете подтвердить её, введя 'выполняй' или нажав кнопку в истории.")
+                        with c2:
+                            if st.button("❌ ОТМЕНИТЬ", key="force_reject_btn", use_container_width=True):
+                                save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отменена.")
+                                st.rerun()
+                    else:
+                        # Если JSON не распарсился, но модель просит подтверждения текстом
+                        st.warning("🤖 Модель предложила выполнить команду, но не передала её в формате JSON. Попробуйте уточнить запрос.")
+                except Exception as hitl_err:
+                    st.error(f"Ошибка HITL: {hitl_err}")
 
             agent_name = AGENT_REGISTRY.get(resp.get('active_node'), {}).get('name', 'Оркестратор')
             st.caption(f"👤 {agent_name} | 🕒 Только что")
