@@ -170,7 +170,7 @@ MODEL_OPTIONS = {
     'llama-3.3-70b-versatile': '🦙 Llama 3.3 70B (Groq)',
     'llama-3.1-70b-versatile': '🦙 Llama 3.1 70B (Groq)',
     'ollama/llama3.1:8b': '🏠 Llama 3.1 8B (Local GPU)',
-    'ollama/mistral-nemo': '🏠 Mistral Nemo 12B (Local GPU)',
+    'ollama/mistral-nemo:12b': '🏠 Mistral Nemo 12B (Local GPU)',
     'ollama/qwen2.5:14b': '🏠 Qwen 2.5 14B (Local GPU)'
 }
 
