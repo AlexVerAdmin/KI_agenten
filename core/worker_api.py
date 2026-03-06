@@ -25,6 +25,25 @@ async def reindex(x_token: str = Header(None)):
     index_knowledge_base()
     return {"status": "Indexing completed"}
 
+@app.post("/execute")
+async def execute_command(command: str, x_token: str = Header(None)):
+    """Выполнение системной команды локально на ноде воркера."""
+    verify_token(x_token)
+    import subprocess
+    try:
+        # Простая проверка на опасные команды
+        forbidden = ["rm -rf /", "mkfs", "dd if="]
+        if any(f in command for f in forbidden):
+            return {"status": "error", "output": "Forbidden command"}
+            
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, timeout=30
+        )
+        output = result.stdout if result.stdout else result.stderr
+        return {"status": "success", "output": output}
+    except Exception as e:
+        return {"status": "error", "output": str(e)}
+
 @app.get("/health")
 async def health():
     return {"status": "OK", "worker": "HomeLab"}
