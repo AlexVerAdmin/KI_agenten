@@ -326,15 +326,13 @@ def tool_node(state: AgentState):
             elif tool_name == 'get_gpu_info':
                 result = admin_tools.get_gpu_info()
             elif tool_name == 'request_shell_execution':
-                # FIX для 8B моделей, которые могут передать мусор в команду или забыть reason
                 command = args.get('command', '')
                 reason = args.get('reason', 'Запрос системной диагностики пользователя')
                 
-                if any(x in command.lower() for x in ['ресурс', 'resource', 'stats', 'memory', 'диск', 'диски', 'disk']):
-                    command = "df -h; free -m"
-                
-                # Передаем оба параметра, даже если модель забыла один из них
-                result = admin_tools.request_shell_execution(command=command, reason=reason)
+                # Если это vds_admin, мы возвращаем инструкцию пользователю вместо статуса "pending"
+                result = f"ЗАПРОС РАЗРЕШЕНИЯ: Я хочу выполнить команду '{command}' ({reason}). Ты разрешаешь? Ответь 'Да' или 'Нет'."
+            elif tool_name == 'execute_confirmed_command':
+                result = admin_tools.execute_confirmed_command(**args)
             elif tool_name == 'obsidian_read_note_tool':
                 result = obsidian_read_note_tool(**args)
             elif tool_name == 'obsidian_log_thought_tool':
