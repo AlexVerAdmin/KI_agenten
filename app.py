@@ -302,46 +302,50 @@ if prompt := st.chat_input('Сообщение...'):
                 "pending_confirmation" in full_text or 
                 "request_shell_execution" in full_text or
                 '"command":' in full_text or
-                "Разрешить исполнение" in full_text
+                "Разрешить исполнение" in full_text or
+                '"arguments":' in full_text
             )
             
             if is_confirmation_request:
                 try:
-                    # Пробуем найти JSON структуру { ... }
-                    json_matches = re.findall(r'\{[^{}]*\}', full_text, re.DOTALL)
-                    tool_data = None
+                    # Ищем все JSON объекты в тексте
+                    json_matches = re.findall(r'\{.*?\}', full_text, re.DOTALL)
+                    commands_to_show = []
                     
                     if json_matches:
                         for match_str in json_matches:
                             try:
                                 data = json.loads(match_str)
-                                if 'command' in data or 'parameters' in data:
-                                    tool_data = data
-                                    break
+                                # Mistral может использовать "arguments" вместо "args" или "command" напрямую
+                                cmd = data.get('command')
+                                if not cmd and 'arguments' in data:
+                                    cmd = data['arguments'].get('command')
+                                elif not cmd and 'args' in data:
+                                    cmd = data['args'].get('command')
+                                
+                                if cmd:
+                                    commands_to_show.append(cmd)
                             except: continue
                     
-                    # Если нашли команду - рисуем кнопки
-                    if tool_data and 'command' in tool_data:
-                        cmd = tool_data['command']
-                        # Принудительная отрисовка кнопок БЕЗ условий селектора
-                        st.info(f"📂 Запрос на выполнение: `{cmd}`")
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            if st.button("✅ ВЫПОЛНИТЬ СЕЙЧАС", key="force_confirm_btn", use_container_width=True):
-                                from core.admin_tools import admin_tools
-                                with st.spinner("Работаю..."):
-                                    res = admin_tools.execute_confirmed_command(cmd)
-                                    st.success("Результат получен!")
-                                    st.code(res)
-                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{res}")
+                    if commands_to_show:
+                        for idx, cmd in enumerate(commands_to_show):
+                            st.info(f"📂 Запрос на выполнение #{idx+1}: `{cmd}`")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button(f"✅ ВЫПОЛНИТЬ #{idx+1}", key=f"confirm_{idx}_{hash(cmd)}", use_container_width=True):
+                                    from core.admin_tools import admin_tools
+                                    with st.spinner("Работаю..."):
+                                        res = admin_tools.execute_confirmed_command(cmd)
+                                        st.success("Результат получен!")
+                                        st.code(res)
+                                        save_message(st.session_state.user_id, current_agent_key, 'user', f"Результат выполнения {cmd}:\n{res}")
+                                        st.rerun()
+                            with c2:
+                                if st.button(f"❌ ОТКЛОНИТЬ #{idx+1}", key=f"reject_{idx}_{hash(cmd)}", use_container_width=True):
+                                    save_message(st.session_state.user_id, current_agent_key, 'user', f"Операция {cmd} отклонена.")
                                     st.rerun()
-                        with c2:
-                            if st.button("❌ ОТМЕНИТЬ", key="force_reject_btn", use_container_width=True):
-                                save_message(st.session_state.user_id, current_agent_key, 'user', "Операция отменена.")
-                                st.rerun()
                     else:
-                        # Если JSON не распарсился, но модель просит подтверждения текстом
-                        st.warning("🤖 Модель предложила выполнить команду, но не передала её в формате JSON. Попробуйте уточнить запрос.")
+                        st.warning("🤖 Модель предложила выполнить команду, но не передала её в верном JSON формате.")
                 except Exception as hitl_err:
                     st.error(f"Ошибка HITL: {hitl_err}")
 
