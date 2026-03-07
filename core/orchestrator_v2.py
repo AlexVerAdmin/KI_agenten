@@ -220,11 +220,11 @@ def get_model(purpose='general', model_override=None, user_id=None):
 
     if 'gemini' in model_name:
         print(f"DEBUG: Using Gemini model: {model_name}")
+        from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
             model=model_name, 
             google_api_key=config.google_api_key,
-            convert_system_message_to_human=True,
-            version="v1beta"
+            convert_system_message_to_human=True
         )
         
     return ChatGroq(model_name=model_name, api_key=config.groq_api_key)
