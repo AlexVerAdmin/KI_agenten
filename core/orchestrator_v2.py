@@ -77,9 +77,9 @@ def save_message(user_id, agent_type, role, content, model_name=None):
     role = str(role) if role is not None else "assistant"
     model_name = str(model_name) if model_name is not None else ""
 
+    # Извлекаем текст если content - это список (Gemini 3.1) или сложный объект
     if not isinstance(content, str):
         try:
-            # Если это список сообщений от Google (как в жалобе), извлекаем текст
             if isinstance(content, list):
                 text_parts = []
                 for item in content:
@@ -87,6 +87,8 @@ def save_message(user_id, agent_type, role, content, model_name=None):
                         text_parts.append(item['text'])
                     elif hasattr(item, 'text'):
                         text_parts.append(item.text)
+                    elif isinstance(item, str):
+                        text_parts.append(item)
                     else:
                         text_parts.append(str(item))
                 content = "".join(text_parts)
@@ -95,14 +97,14 @@ def save_message(user_id, agent_type, role, content, model_name=None):
         except:
             content = "[Unserializable Content]"
     
-    # ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД SQL
+    # ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД SQL — только строки
     content = str(content)
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
         cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp, model_name) VALUES (?, ?, ?, ?, ?, ?)', 
-                    (user_id, agent_type, role, content, datetime.now(), model_name))
+                    (user_id, agent_type, role, content, datetime.now().isoformat(), model_name))
         conn.commit()
     except Exception as e:
         print(f"CRITICAL SQL ERROR: {e}")
@@ -164,6 +166,7 @@ def clear_chat_history(user_id, agent_type=None):
 def get_model(model_name: str, temperature=0):
     if model_name.startswith('gemini'):
         from langchain_google_genai import ChatGoogleGenerativeAI
+        # Gemini 3.1 1.5-flash often returns dict-based responses if v1beta isn't specified
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, version="v1beta")
     elif model_name.startswith('llama') or model_name.startswith('mixtral'):
         from langchain_groq import ChatGroq
