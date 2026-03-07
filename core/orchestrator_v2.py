@@ -25,7 +25,8 @@ AGENT_REGISTRY = {
 }
 
 # Настройка путей
-DB_PATH = os.environ.get('SQLITE_DB_PATH', '/app/data/memory_v2.sqlite')
+# ПРИОРИТЕТ: локальная папка, если нет переменной Docker
+DB_PATH = os.environ.get('SQLITE_DB_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'memory_v2.sqlite'))
 
 # Типизация состояния
 class AgentState(TypedDict):
