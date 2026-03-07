@@ -57,6 +57,21 @@ def get_summary(user_id, agent_type):
     return row[0] if row else None
 
 def save_message(user_id, agent_type, role, content):
+    if not isinstance(content, str):
+        try:
+            # Если это список сообщений от Google (как в жалобе), извлекаем текст
+            if isinstance(content, list):
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict) and 'text' in item:
+                        text_parts.append(item['text'])
+                    else:
+                        text_parts.append(str(item))
+                content = "".join(text_parts)
+            else:
+                content = str(content)
+        except:
+            content = "[Unserializable Content]"
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp) VALUES (?, ?, ?, ?, ?)', (user_id, agent_type, role, content, datetime.now()))
@@ -116,10 +131,10 @@ def search_knowledge(query, k=2):
     except: return ''
 
 AGENT_REGISTRY = {
-    'general': {'name': 'Общий ассистент', 'default_model': 'llama-3.3-70b-versatile'},
-    'german': {'name': 'Herr Max Klein', 'default_model': 'gemini-3-flash-preview'},
-    'career': {'name': 'HR-Эксперт', 'default_model': 'gemini-3.1-pro-preview', 'can_access_obsidian': True},
-    'finance': {'name': 'Финансовый консультант', 'default_model': 'llama-3.1-8b-instant', 'can_access_obsidian': True}
+    'general': {'name': '🤖 Помощник', 'default_model': 'llama-3.3-70b-versatile'},
+    'german': {'name': '🇩🇪 Herr Max Klein', 'default_model': 'gemini-3-flash-preview'},
+    'career': {'name': '💼 HR-Эксперт', 'default_model': 'gemini-3.1-pro-preview', 'can_access_obsidian': True},
+    'finance': {'name': '💰 Финансовый консультант', 'default_model': 'llama-3.1-8b-instant', 'can_access_obsidian': True}
 }
 
 class AgentState(TypedDict):
@@ -130,7 +145,7 @@ class AgentState(TypedDict):
 def get_model(agent_type):
     model_name = get_agent_model(agent_type) or AGENT_REGISTRY[agent_type]['default_model']
     if 'gemini' in model_name:
-        return ChatGoogleGenerativeAI(model=model_name, google_api_key=config.google_api_key, temperature=0.4, timeout=30)
+        return ChatGoogleGenerativeAI(model=model_name, google_api_key=config.google_api_key, temperature=0.4, timeout=30, version="v1beta")
     return ChatGroq(model_name=model_name, api_key=config.groq_api_key, temperature=0.3)
 
 def node_handler(state: AgentState):
@@ -139,6 +154,16 @@ def node_handler(state: AgentState):
     summary = get_summary(user_id, agent_type)
     
     llm = get_model(agent_type)
+    
+    # Реакция на Obsidian для German и других (добавляем инструменты)
+    from core.utils_obsidian import obsidian_capture_tool
+    tools = []
+    if agent_type == 'german':
+        tools = [obsidian_capture_tool]
+    
+    if tools:
+        llm = llm.bind_tools(tools)
+
     last_msg = state['messages'][-1].content
     
     # Реакция на мысли и финансы (простой парсинг для начала)
@@ -180,8 +205,33 @@ def node_handler(state: AgentState):
 
 workflow = StateGraph(AgentState)
 workflow.add_node('agent', node_handler)
+
+def tool_node(state: AgentState):
+    from core.utils_obsidian import obsidian_capture_tool
+    last_message = state['messages'][-1]
+    tool_results = []
+    if hasattr(last_message, 'tool_calls'):
+        for tool_call in last_message.tool_calls:
+            tool_name = tool_call['name']
+            args = tool_call['args']
+            if tool_name == 'obsidian_capture_tool':
+                from core.utils_obsidian import obsidian
+                result = obsidian.log_german_vocabulary(**args)
+            else: result = f"Error: Tool {tool_name} not found."
+            from langchain_core.messages import ToolMessage
+            tool_results.append(ToolMessage(tool_call_id=tool_call['id'], content=str(result)))
+    return {'messages': tool_results}
+
+def should_continue(state: AgentState):
+    last_message = state['messages'][-1]
+    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        return 'tools'
+    return END
+
+workflow.add_node('tools', tool_node)
 workflow.set_entry_point('agent')
-workflow.add_edge('agent', END)
+workflow.add_conditional_edges('agent', should_continue)
+workflow.add_edge('tools', 'agent')
 app = workflow.compile()
 
 def summarize_history(user_id, agent_type, msgs):
@@ -259,9 +309,18 @@ def process_message(text, user_id, agent_type=None, thread_id=None, **kwargs):
     
     # ПРЯМО ПЕРЕДАЕМ agent_type в состояние графа
     res = app.invoke({'messages': context_window, 'agent_type': agent_type, 'user_id': user_id}, 
-                     config={"configurable": {"thread_id": f"{user_id}_{agent_type}"}})
+                     config={"configurable": {"thread_id": f"{user_id}_{agent_type}"}, "recursion_limit": 50})
     
-    ai_text = res['messages'][-1].content
+    ai_msg = res['messages'][-1]
+    ai_text = ai_msg.content
+    
+    # Обработка разных форматов Gemini (как в orchestrator_v2)
+    if isinstance(ai_text, list):
+        text_parts = [part['text'] for part in ai_text if isinstance(part, dict) and 'text' in part]
+        ai_text = "".join(text_parts)
+    elif not isinstance(ai_text, str):
+        ai_text = str(ai_text)
+
     save_message(user_id, agent_type, 'assistant', ai_text)
     return {'text': ai_text, 'active_node': agent_type}
 
