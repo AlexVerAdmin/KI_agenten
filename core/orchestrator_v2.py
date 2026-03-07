@@ -17,8 +17,9 @@ from config import config
 # ГЛОБАЛЬНЫЙ РЕЕСТР АГЕНТОВ (для UI)
 AGENT_REGISTRY = {
     'general': {'name': '🤖 Помощник', 'desc': 'Общие вопросы и поиск в Obsidian'},
-    'german': {'name': '🇩🇪 Deutsch', 'desc': 'Учитель немецкого языка'},
-    'career': {'name': '💼 Карьера', 'desc': 'Консультант по трудоустройству'},
+    'german': {'name': '🇩🇪 Herr Max Klein', 'desc': 'Учитель немецкого языка'},
+    'career': {'name': '💼 HR-Эксперт', 'desc': 'Консультант по трудоустройству'},
+    'finance': {'name': '💰 Финансы', 'desc': 'Управление личными финансами (Obsidian)'},
     'vds_admin': {'name': '🌐 VDS Admin', 'desc': 'Управление Docker и системный мониторинг'},
     'local_admin': {'name': '🏠 Local Admin', 'desc': 'Управление локальным сервером'}
 }
@@ -69,6 +70,10 @@ def init_db():
 init_db()
 
 def save_message(user_id, agent_type, role, content, model_name=None):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
+    if not isinstance(role, str): role = str(role)
+
     if not isinstance(content, str):
         try:
             # Если это список сообщений от Google (как в жалобе), извлекаем текст
@@ -92,6 +97,8 @@ def save_message(user_id, agent_type, role, content, model_name=None):
     conn.close()
 
 def get_agent_setting(user_id, agent_type, key, default=None):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -105,6 +112,8 @@ def get_agent_setting(user_id, agent_type, key, default=None):
         return default
 
 def save_agent_setting(user_id, agent_type, key, value):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -116,9 +125,11 @@ def save_agent_setting(user_id, agent_type, key, value):
         print(f"DEBUG: Error saving setting: {e}")
 
 def get_chat_history_db(user_id, agent_type=None):
+    if not isinstance(user_id, str): user_id = str(user_id)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     if agent_type:
+        if not isinstance(agent_type, str): agent_type = str(agent_type)
         cur.execute('SELECT role, content, agent_type, timestamp FROM chat_history WHERE user_id = ? AND agent_type = ? ORDER BY timestamp ASC', (user_id, agent_type))
     else:
         cur.execute('SELECT role, content, agent_type, timestamp FROM chat_history WHERE user_id = ? ORDER BY timestamp ASC', (user_id,))
@@ -140,7 +151,7 @@ def clear_chat_history(user_id, agent_type=None):
 def get_model(model_name: str, temperature=0):
     if model_name.startswith('gemini'):
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, version="v1beta")
     elif model_name.startswith('llama') or model_name.startswith('mixtral'):
         from langchain_groq import ChatGroq
         return ChatGroq(model_name=model_name, temperature=temperature)
@@ -222,20 +233,63 @@ workflow.add_conditional_edges('agent', should_continue)
 workflow.add_edge('tools', 'agent')
 app = workflow.compile()
 
-def process_message(text, user_id, agent_type='general', model_override=None, **kwargs):
+def get_user_agent(user_id):
+    """Fallback for Telegram logic missing in V2"""
+    return get_agent_setting(user_id, 'all', 'last_agent', 'general')
+
+def set_user_agent(user_id, agent_type):
+    """Fallback for Telegram logic missing in V2"""
+    save_agent_setting(user_id, 'all', 'last_agent', agent_type)
+
+def process_message(text, user_id, agent_type=None, thread_id=None, model_override=None, **kwargs):
     init_db()
+    
+    # --- МАППИНГ ТЕМ (Topics) В ТЕЛЕГРАМЕ ---
+    topic_mapping = {
+        2: "german",   # Учитель
+        8: "career",   # Консультант/HR
+        11: "finance"  # Финансы
+    }
+    
+    if thread_id in topic_mapping:
+        agent_type = topic_mapping[thread_id]
+        set_user_agent(user_id, agent_type)
+    
+    if agent_type is None:
+        agent_type = get_user_agent(user_id)
+
+    # --- СТРОГИЙ ПРЕФИКСНЫЙ ПЕРЕКЛЮЧАТЕЛЬ ---
+    lower_text = text.lower()
+    clean_text = text
+    
+    if lower_text.startswith("передай учителю") or lower_text.startswith("передай максу") or lower_text.startswith("учитель,"):
+        agent_type = "german"
+        clean_text = text.replace("Передай учителю", "").replace("передай учителю", "").replace("Учитель,", "").replace("учитель,", "").strip()
+        set_user_agent(user_id, agent_type) 
+    elif lower_text.startswith("передай в финансы") or lower_text.startswith("запиши расход"):
+        agent_type = "finance"
+        clean_text = text.replace("Передай в финансы", "").replace("передай в финансы", "").strip()
+        set_user_agent(user_id, agent_type)
+    elif lower_text.startswith("передай hr") or lower_text.startswith("передай коучу"):
+        agent_type = "career"
+        clean_text = text.replace("Передай hr", "").replace("передай hr", "").strip()
+        set_user_agent(user_id, agent_type)
+    
+    if not clean_text: clean_text = text
+
     if model_override: save_agent_setting(user_id, agent_type, 'selected_model', model_override)
-    save_message(user_id, agent_type, 'user', text, model_name=model_override)
+    save_message(user_id, agent_type, 'user', clean_text, model_name=model_override)
+    
     history_raw = get_chat_history_db(user_id, agent_type)
     msgs = []
     for m in history_raw[-15:]:
         if m['role'] == 'user': msgs.append(HumanMessage(content=m['content']))
         elif m['role'] == 'assistant': msgs.append(AIMessage(content=m['content']))
+    
     inputs = {'messages': msgs, 'agent_type': agent_type, 'model_override': model_override, 'user_id': user_id}
     try:
         res = app.invoke(inputs, config={"recursion_limit": 50})
         ai_msg = res['messages'][-1]
-        # Обработка разных форматов Gemini
         ai_text = ai_msg.content
         if isinstance(ai_text, list):
             text_parts = [part['text'] for part in ai_text if isinstance(part, dict) and 'text' in part]

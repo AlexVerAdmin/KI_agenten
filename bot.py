@@ -112,13 +112,13 @@ def get_agent_keyboard(current_agent='general'):
 @dp.message(Command("agent"))
 async def command_agent_handler(message: Message) -> None:
     """Manual agent selection via /agent command"""
-    from core.orchestrator import get_user_agent
+    from core.orchestrator_v2 import get_user_agent
     current = get_user_agent(str(message.from_user.id))
     await message.answer(f"Текущий агент: {html.bold(current)}\nВыберите активного агента:", reply_markup=get_agent_keyboard(current))
 
 @dp.callback_query(lambda c: c.data.startswith('set_agent:'))
 async def process_callback_agent(callback_query: CallbackQuery):
-    from core.orchestrator import set_user_agent, AGENT_REGISTRY
+    from core.orchestrator_v2 import set_user_agent, AGENT_REGISTRY
     agent_key = callback_query.data.split(":")[1]
     user_id = str(callback_query.from_user.id)
     
@@ -177,7 +177,7 @@ async def voice_handler(message: Message) -> None:
         await message.reply(f"🎤 {html.italic(transcribed_text)}")
         
         # 2. Process the transcribed text through the orchestrator
-        from core.orchestrator import process_message
+        from core.orchestrator_v2 import process_message
         user_id = str(message.from_user.id)
         
         # Re-trigger 'typing' for the AI response generation
@@ -189,7 +189,7 @@ async def voice_handler(message: Message) -> None:
         active_node = response_data.get("active_node")
         
         # Add visual indicator for the active agent
-        from core.orchestrator import AGENT_REGISTRY
+        from core.orchestrator_v2 import AGENT_REGISTRY
         agent_name = AGENT_REGISTRY.get(active_node, {}).get("name", "Оркестратор")
         display_text = f"👤 {html.bold(agent_name)}:\n\n{response_text}"
         
@@ -234,7 +234,7 @@ async def message_handler(message: Message) -> None:
         return
 
     try:
-        from core.orchestrator import process_message
+        from core.orchestrator_v2 import process_message
         await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
         user_id = str(message.from_user.id)
         
@@ -253,7 +253,7 @@ async def message_handler(message: Message) -> None:
         is_german = active_node == "german"
         
         # Visual indicator
-        from core.orchestrator import AGENT_REGISTRY
+        from core.orchestrator_v2 import AGENT_REGISTRY
         agent_name = AGENT_REGISTRY.get(active_node, {}).get("name", "Оркестратор")
         display_text = f"👤 {html.bold(agent_name)}:\n\n{response_text}"
         
