@@ -42,6 +42,8 @@ def get_user_agent(user_id):
     return row[0] if row else 'general'
 
 def save_summary(user_id, agent_type, content):
+    if not isinstance(content, str):
+        content = str(content)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute('INSERT OR REPLACE INTO summaries (user_id, agent_type, content, timestamp) VALUES (?, ?, ?, ?)', (user_id, agent_type, content, datetime.now()))
@@ -57,6 +59,7 @@ def get_summary(user_id, agent_type):
     return row[0] if row else None
 
 def save_message(user_id, agent_type, role, content):
+    logging.info(f"DEBUG: save_message called for {user_id}, role={role}. Content type: {type(content)}")
     if not isinstance(content, str):
         try:
             # Если это список сообщений от Google (как в жалобе), извлекаем текст
@@ -70,13 +73,21 @@ def save_message(user_id, agent_type, role, content):
                 content = "".join(text_parts)
             else:
                 content = str(content)
-        except:
+        except Exception as e:
+            logging.error(f"DEBUG: Error serializing content: {e}")
             content = "[Unserializable Content]"
+    
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp) VALUES (?, ?, ?, ?, ?)', (user_id, agent_type, role, content, datetime.now()))
-    conn.commit()
-    conn.close()
+    try:
+        cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp) VALUES (?, ?, ?, ?, ?)', 
+                    (user_id, agent_type, role, content, datetime.now()))
+        conn.commit()
+    except Exception as e:
+        logging.error(f"CRITICAL SQL ERROR in save_message: {e}. Content: {content[:100]}")
+        raise e
+    finally:
+        conn.close()
 
 def get_chat_history(user_id, agent_type=None):
     conn = sqlite3.connect(DB_PATH)
