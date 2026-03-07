@@ -27,6 +27,8 @@ def init_db():
     conn.close()
 
 def set_user_agent(user_id, agent_type):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute('INSERT OR REPLACE INTO user_sessions (user_id, last_agent, timestamp) VALUES (?, ?, ?)', (user_id, agent_type, datetime.now()))
@@ -34,6 +36,7 @@ def set_user_agent(user_id, agent_type):
     conn.close()
 
 def get_user_agent(user_id):
+    if not isinstance(user_id, str): user_id = str(user_id)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute('SELECT last_agent FROM user_sessions WHERE user_id = ?', (user_id,))
@@ -42,6 +45,8 @@ def get_user_agent(user_id):
     return row[0] if row else 'general'
 
 def save_summary(user_id, agent_type, content):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
     if not isinstance(content, str):
         content = str(content)
     conn = sqlite3.connect(DB_PATH)
@@ -51,6 +56,8 @@ def save_summary(user_id, agent_type, content):
     conn.close()
 
 def get_summary(user_id, agent_type):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute('SELECT content FROM summaries WHERE user_id = ? AND agent_type = ?', (user_id, agent_type))
@@ -59,7 +66,11 @@ def get_summary(user_id, agent_type):
     return row[0] if row else None
 
 def save_message(user_id, agent_type, role, content):
-    logging.info(f"DEBUG: save_message called for {user_id}, role={role}. Content type: {type(content)}")
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if not isinstance(agent_type, str): agent_type = str(agent_type)
+    if not isinstance(role, str): role = str(role)
+    
+    # logging.info(f"DEBUG: save_message called for {user_id}, role={role}. Content type: {type(content)}")
     if not isinstance(content, str):
         try:
             # Если это список сообщений от Google (как в жалобе), извлекаем текст
@@ -74,7 +85,7 @@ def save_message(user_id, agent_type, role, content):
             else:
                 content = str(content)
         except Exception as e:
-            logging.error(f"DEBUG: Error serializing content: {e}")
+            # logging.error(f"DEBUG: Error serializing content: {e}")
             content = "[Unserializable Content]"
     
     conn = sqlite3.connect(DB_PATH)
@@ -84,12 +95,14 @@ def save_message(user_id, agent_type, role, content):
                     (user_id, agent_type, role, content, datetime.now()))
         conn.commit()
     except Exception as e:
-        logging.error(f"CRITICAL SQL ERROR in save_message: {e}. Content: {content[:100]}")
+        # logging.error(f"CRITICAL SQL ERROR in save_message: {e}. Content: {content[:100]}")
         raise e
     finally:
         conn.close()
 
 def get_chat_history(user_id, agent_type=None):
+    if not isinstance(user_id, str): user_id = str(user_id)
+    if agent_type and not isinstance(agent_type, str): agent_type = str(agent_type)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     if agent_type:
