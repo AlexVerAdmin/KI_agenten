@@ -146,18 +146,18 @@ st.markdown(f"""
     }}
     
     /* Стили для мягко удаленных сообщений */
-    .deleted-message {
+    .deleted-message {{
         opacity: 0.5;
         font-style: italic;
         text-decoration: line-through;
-    }
-    .soft-delete-btn button {
+    }}
+    .soft-delete-btn button {{
         height: 24px !important;
         padding: 0 8px !important;
         font-size: 12px !important;
         min-height: 24px !important;
         margin-top: 5px !important;
-    }
+    }}
     </style>
     """, unsafe_allow_html=True)
 
