@@ -243,7 +243,10 @@ def summarize_history(user_id, agent_type, msgs):
     summary_prompt = "Сделай краткое резюме (summary) этой переписки на русском языке. Выдели основные факты, прогресс в обучении или важные детали. Это резюме будет использоваться как контекст для следующего сообщения.\n\nПереписка:\n"
     for m in msgs:
         role = "Пользователь" if isinstance(m, HumanMessage) else "Ассистент"
-        summary_prompt += f"{role}: {m.content}\n"
+        m_content = m.content
+        if isinstance(m_content, list):
+            m_content = "".join([part['text'] for part in m_content if isinstance(part, dict) and 'text' in part])
+        summary_prompt += f"{role}: {m_content}\n"
         
     summary_res = llm.invoke([HumanMessage(content=summary_prompt)])
     save_summary(user_id, agent_type, summary_res.content)
