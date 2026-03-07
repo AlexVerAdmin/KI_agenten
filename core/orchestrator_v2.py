@@ -70,9 +70,11 @@ def init_db():
 init_db()
 
 def save_message(user_id, agent_type, role, content, model_name=None):
-    if not isinstance(user_id, str): user_id = str(user_id)
-    if not isinstance(agent_type, str): agent_type = str(agent_type)
-    if not isinstance(role, str): role = str(role)
+    # ПРИНУДИТЕЛЬНОЕ ПРИВЕДЕНИЕ ВСЕХ ПАРАМЕТРОВ К СТРОКАМ (SQLITE BIND FIX)
+    user_id = str(user_id) if user_id is not None else "unknown"
+    agent_type = str(agent_type) if agent_type is not None else "general"
+    role = str(role) if role is not None else "assistant"
+    model_name = str(model_name) if model_name is not None else ""
 
     if not isinstance(content, str):
         try:
@@ -82,6 +84,8 @@ def save_message(user_id, agent_type, role, content, model_name=None):
                 for item in content:
                     if isinstance(item, dict) and 'text' in item:
                         text_parts.append(item['text'])
+                    elif hasattr(item, 'text'):
+                        text_parts.append(item.text)
                     else:
                         text_parts.append(str(item))
                 content = "".join(text_parts)
@@ -89,12 +93,20 @@ def save_message(user_id, agent_type, role, content, model_name=None):
                 content = str(content)
         except:
             content = "[Unserializable Content]"
+    
+    # ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД SQL
+    content = str(content)
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp, model_name) VALUES (?, ?, ?, ?, ?, ?)', 
-                (user_id, agent_type, role, content, datetime.now(), model_name))
-    conn.commit()
-    conn.close()
+    try:
+        cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp, model_name) VALUES (?, ?, ?, ?, ?, ?)', 
+                    (user_id, agent_type, role, content, datetime.now(), model_name))
+        conn.commit()
+    except Exception as e:
+        print(f"CRITICAL SQL ERROR: {e}")
+    finally:
+        conn.close()
 
 def get_agent_setting(user_id, agent_type, key, default=None):
     if not isinstance(user_id, str): user_id = str(user_id)
