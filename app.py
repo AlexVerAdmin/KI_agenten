@@ -144,6 +144,20 @@ st.markdown(f"""
         color: white !important;
         border: 2px solid #801010 !important;
     }}
+    
+    /* Стили для мягко удаленных сообщений */
+    .deleted-message {
+        opacity: 0.5;
+        font-style: italic;
+        text-decoration: line-through;
+    }
+    .soft-delete-btn button {
+        height: 24px !important;
+        padding: 0 8px !important;
+        font-size: 12px !important;
+        min-height: 24px !important;
+        margin-top: 5px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -206,11 +220,20 @@ if ollama_status:
 else:
     st.sidebar.error("🔴 Local GPU Нода: OFFLINE")
 
+# Настройки отображения корзины
+show_deleted = st.sidebar.toggle('🗓 Показать удаленные (30д)', key='show_deleted')
+
 st.sidebar.toggle('🔊 Голос', key='voice_enabled')
 
 st.sidebar.divider()
 if st.sidebar.button('🔄 Обновить базу данных'):
     with st.spinner('Индексация...'):
+        # Предварительная очистка просроченных сообщений
+        from core.orchestrator_v2 import cleanup_deleted_messages
+        deleted_count = cleanup_deleted_messages()
+        if deleted_count > 0:
+            st.sidebar.info(f"🧹 Очищено старых сообщений: {deleted_count}")
+
         # Используем пути из config, которые могут переопределяться через .env или ENV (Docker)
         from config import config
         from core.memory import index_directory
@@ -231,12 +254,23 @@ with st.sidebar.expander("🛠 Отладка"):
         if clear_chat_history(st.session_state.user_id, current_agent_key): st.rerun()
 
 # ЧАТ
-history = get_chat_history_db(st.session_state.user_id, current_agent_key)
+history = get_chat_history_db(st.session_state.user_id, current_agent_key, include_deleted=st.session_state.get('show_deleted', False))
 
 for msg in history:
     is_user = (msg['role'] == 'user')
+    msg_id = msg.get('id')
+    is_deleted = msg.get('deleted_at') is not None
+    
     with st.chat_message('user' if is_user else 'assistant'):
-        st.markdown(msg['content'])
+        if is_deleted:
+            st.markdown(f'<div class="deleted-message">{msg["content"]}</div>', unsafe_allow_html=True)
+            st.caption("🗑 Сообщение удалено (хранится 30 дней)")
+            if st.button("🔄 Восстановить", key=f"restore_{msg_id}"):
+                from core.orchestrator_v2 import restore_message
+                restore_message(msg_id)
+                st.rerun()
+        else:
+            st.markdown(msg['content'])
         
         # --- HITL (Human-in-the-Loop) Кнопки подтверждения в ИСТОРИИ ---
         if not is_user:
@@ -298,7 +332,16 @@ for msg in history:
         else:
             ts = ""
             
-        st.caption(f"👤 {display_name} {('| 🕒 ' + ts) if ts else ''}")
+        c_meta, c_del = st.columns([10, 1])
+        with c_meta:
+            st.caption(f"👤 {display_name} {('| 🕒 ' + ts) if ts else ''}")
+        with c_del:
+            if not is_deleted:
+                # Кнопка удаления в каждом сообщении (мягкое)
+                if st.button("🗑", key=f"del_{msg_id}", help="Мягкое удаление (на 30 дней)"):
+                    from core.orchestrator_v2 import soft_delete_message
+                    soft_delete_message(msg_id)
+                    st.rerun()
 
 if prompt := st.chat_input('Сообщение...'):
     st.chat_message('user').markdown(prompt)

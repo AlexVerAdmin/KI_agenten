@@ -3,7 +3,8 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import Annotated, TypedDict, List, Union, Optional
-from typing_extensions import Required
+# Удаляем проблемный импорт, так как Required есть в typing для Python 3.11+
+# from typing_extensions import Required
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
@@ -47,7 +48,8 @@ def init_db():
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            model_name TEXT
+            model_name TEXT,
+            deleted_at DATETIME DEFAULT NULL
         )
     ''')
     cur.execute('''
@@ -65,19 +67,16 @@ def init_db():
         try:
             cur.execute('ALTER TABLE chat_history ADD COLUMN model_name TEXT')
         except: pass
+    if 'deleted_at' not in columns:
+        try:
+            cur.execute('ALTER TABLE chat_history ADD COLUMN deleted_at DATETIME DEFAULT NULL')
+        except: pass
     conn.commit()
     conn.close()
 
 init_db()
 
 def save_message(user_id, agent_type, role, content, model_name=None):
-    # ПРИНУДИТЕЛЬНОЕ ПРИВЕДЕНИЕ ВСЕХ ПАРАМЕТРОВ К СТРОКАМ (SQLITE BIND FIX)
-    user_id = str(user_id) if user_id is not None else "unknown"
-    agent_type = str(agent_type) if agent_type is not None else "general"
-    role = str(role) if role is not None else "assistant"
-    model_name = str(model_name) if model_name is not None else ""
-
-    # Извлекаем текст если content - это список (Gemini 3.1) или сложный объект
     if not isinstance(content, str):
         try:
             if isinstance(content, list):
@@ -99,15 +98,21 @@ def save_message(user_id, agent_type, role, content, model_name=None):
     
     # ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД SQL — только строки
     content = str(content)
+    user_id = str(user_id) if user_id else "unknown"
+    agent_type = str(agent_type) if agent_type else "general"
+    role = str(role) if role else "assistant"
+    model_name = str(model_name) if model_name else ""
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
+        # ПАРАМЕТР 4: index 3 (content). ЕСЛИ ОН ВСЕ ЕЩЕ ЛИСТ - ЭТО ЧУДО.
         cur.execute('INSERT INTO chat_history (user_id, agent_type, role, content, timestamp, model_name) VALUES (?, ?, ?, ?, ?, ?)', 
                     (user_id, agent_type, role, content, datetime.now().isoformat(), model_name))
         conn.commit()
     except Exception as e:
-        print(f"CRITICAL SQL ERROR: {e}")
+        import logging
+        logging.error(f"SQL SAVE ERROR: {e}. Parameter types: user_id={type(user_id)}, agent={type(agent_type)}, role={type(role)}, content={type(content)}")
     finally:
         conn.close()
 
@@ -139,20 +144,59 @@ def save_agent_setting(user_id, agent_type, key, value):
     except Exception as e:
         print(f"DEBUG: Error saving setting: {e}")
 
-def get_chat_history_db(user_id, agent_type=None):
+def get_chat_history_db(user_id, agent_type=None, include_deleted=False):
     if not isinstance(user_id, str): user_id = str(user_id)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+    
+    # Базовое условие: только не удаленные сообщения по умолчанию
+    delete_filter = "" if include_deleted else " AND deleted_at IS NULL"
+    
     if agent_type:
         if not isinstance(agent_type, str): agent_type = str(agent_type)
-        cur.execute('SELECT role, content, agent_type, timestamp FROM chat_history WHERE user_id = ? AND agent_type = ? ORDER BY timestamp ASC', (user_id, agent_type))
+        query = f'SELECT role, content, agent_type, timestamp, id, deleted_at FROM chat_history WHERE user_id = ? AND agent_type = ?{delete_filter} ORDER BY timestamp ASC'
+        cur.execute(query, (user_id, agent_type))
     else:
-        cur.execute('SELECT role, content, agent_type, timestamp FROM chat_history WHERE user_id = ? ORDER BY timestamp ASC', (user_id,))
+        query = f'SELECT role, content, agent_type, timestamp, id, deleted_at FROM chat_history WHERE user_id = ?{delete_filter} ORDER BY timestamp ASC'
+        cur.execute(query, (user_id,))
+        
     rows = cur.fetchall()
     conn.close()
-    return [{'role': r[0], 'content': r[1], 'agent': r[2], 'timestamp': r[3]} for r in rows]
+    return [{'role': r[0], 'content': r[1], 'agent': r[2], 'timestamp': r[3], 'id': r[4], 'deleted_at': r[5]} for r in rows]
+
+def soft_delete_message(message_id):
+    """Помечает сообщение как удаленное (мягкое удаление)"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('UPDATE chat_history SET deleted_at = ? WHERE id = ?', (datetime.now().isoformat(), message_id))
+    conn.commit()
+    conn.close()
+    return True
+
+def restore_message(message_id):
+    """Восстанавливает мягко удаленное сообщение"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('UPDATE chat_history SET deleted_at = NULL WHERE id = ?', (message_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+def cleanup_deleted_messages():
+    """Окончательно удаляет сообщения, помеченные удаленными более 30 дней назад"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # Удаляем записи, где deleted_at старше 30 дней
+    cur.execute("DELETE FROM chat_history WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-30 days')")
+    count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return count
 
 def clear_chat_history(user_id, agent_type=None):
+    # Запускаем очистку старых сообщений при каждой очистке истории или по вызову
+    cleanup_deleted_messages()
+    
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     if agent_type:
@@ -166,8 +210,8 @@ def clear_chat_history(user_id, agent_type=None):
 def get_model(model_name: str, temperature=0):
     if model_name.startswith('gemini'):
         from langchain_google_genai import ChatGoogleGenerativeAI
-        # Gemini 3.1 1.5-flash often returns dict-based responses if v1beta isn't specified
-        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, version="v1beta")
+        # Удаляем version="v1beta", так как это вызывает ошибку в текущей версии библиотеки
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
     elif model_name.startswith('llama') or model_name.startswith('mixtral'):
         from langchain_groq import ChatGroq
         return ChatGroq(model_name=model_name, temperature=temperature)
@@ -211,17 +255,62 @@ def get_tools_for_agent(agent_type):
 
 def node_handler(state: AgentState):
     agent_type = state['agent_type']
-    model_name = state.get('model_override') or 'gemini-1.5-flash'
+    model_name = state.get('model_override') or 'gemini-3.1-flash-lite-preview'
     llm = get_model(model_name)
     tools = get_tools_for_agent(agent_type)
     if tools: llm = llm.bind_tools(tools)
     sys_msg = SystemMessage(content=SYSTEM_PROMPTS.get(agent_type, SYSTEM_PROMPTS['general']))
-    messages = [sys_msg] + state['messages']
-    response = llm.invoke(messages)
+    
+    # Ensure messages are not empty and have strictly string content
+    formatted_messages = [sys_msg]
+    for m in state['messages']:
+        content = m.content
+        
+        # Если это ToolMessage, но content пустой - Gemini упадет с "contents are required"
+        if isinstance(m, ToolMessage):
+            if not content or str(content).strip() == "":
+                content = "Action completed successfully."
+        
+        if content and isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and 'text' in part:
+                    text_parts.append(part['text'])
+                elif isinstance(part, str):
+                    text_parts.append(part)
+                else:
+                    text_parts.append(str(part))
+            content = "".join(text_parts)
+            
+        # Для Human/AI сообщений проверяем пустоту
+        if content and str(content).strip():
+            if isinstance(m, HumanMessage):
+                formatted_messages.append(HumanMessage(content=str(content)))
+            elif isinstance(m, AIMessage):
+                # Сохраняем tool_calls для AIMessage, если они есть
+                ai_extra = {}
+                if hasattr(m, 'tool_calls') and m.tool_calls:
+                    ai_extra['tool_calls'] = m.tool_calls
+                formatted_messages.append(AIMessage(content=str(content), **ai_extra))
+            elif isinstance(m, ToolMessage):
+                formatted_messages.append(ToolMessage(content=str(content), tool_call_id=m.tool_call_id))
+            else:
+                formatted_messages.append(m)
+        elif isinstance(m, AIMessage) and hasattr(m, 'tool_calls') and m.tool_calls:
+            # СТРАТЕГИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если AIMessage содержит только вызов инструмента (content пуст),
+            # Gemini ВСЕ РАВНО требует наличие строки content (хотя бы пробел или описание действия).
+            formatted_messages.append(AIMessage(content="Calling tool...", tool_calls=m.tool_calls))
+    
+    # ПРОВЕРКА: Если последнее сообщение - AIMessage с tool_calls, 
+    # а в списке НЕТ соответствующих ToolMessage, Gemini выдаст ошибку.
+    # Но здесь мы полагаемся на логику LangGraph.
+        
+    response = llm.invoke(formatted_messages)
     return {'messages': [response]}
 
 def tool_node(state: AgentState):
     from core.admin_tools import admin_tools
+    from core.utils_obsidian import obsidian_capture_tool
     last_message = state['messages'][-1]
     tool_results = []
     if hasattr(last_message, 'tool_calls'):
@@ -231,8 +320,15 @@ def tool_node(state: AgentState):
             if tool_name == 'get_docker_status': result = admin_tools.get_docker_status(**args)
             elif tool_name == 'check_connection': result = admin_tools.check_connection(**args)
             elif tool_name == 'run_remote_command': result = admin_tools.run_remote_command(**args)
+            elif tool_name == 'obsidian_capture_tool': result = obsidian_capture_tool(**args)
             else: result = f"Error: Tool {tool_name} not found."
-            tool_results.append(ToolMessage(tool_call_id=tool_call['id'], content=str(result)))
+            
+            # CRITICAL: Ensure tool output content is NOT empty
+            tool_content = str(result) if result else "Success (no output)"
+            if not tool_content.strip():
+                tool_content = "Action completed."
+                
+            tool_results.append(ToolMessage(tool_call_id=tool_call['id'], content=tool_content))
     return {'messages': tool_results}
 
 def should_continue(state: AgentState):
@@ -298,11 +394,34 @@ def process_message(text, user_id, agent_type=None, thread_id=None, model_overri
     
     history_raw = get_chat_history_db(user_id, agent_type)
     msgs = []
-    for m in history_raw[-15:]:
-        if m['role'] == 'user': msgs.append(HumanMessage(content=m['content']))
-        elif m['role'] == 'assistant': msgs.append(AIMessage(content=m['content']))
     
-    inputs = {'messages': msgs, 'agent_type': agent_type, 'model_override': model_override, 'user_id': user_id}
+    # Filter out or convert messages with empty content to prevent "contents are required" error
+    for m in history_raw[-15:]:
+        content = m['content']
+        if not content or str(content).strip() == "":
+            continue # Skip empty messages
+        if m['role'] == 'user': 
+            msgs.append(HumanMessage(content=str(content)))
+        elif m['role'] == 'assistant': 
+            # ВАЖНО: Если в базе сохранен JSON с tool_calls, восстанавливаем их для LangGraph
+            ai_extra = {}
+            if "tool_calls" in content and (content.startswith("[") or content.startswith("{")):
+                try:
+                    # Попытка распарсить, если мы когда-то сохраняли сырой JSON (на всякий случай)
+                    calls = json.loads(content)
+                    ai_extra["tool_calls"] = calls
+                    content = "Executing tools..."
+                except: pass
+            msgs.append(AIMessage(content=str(content), **ai_extra))
+    
+    # Ensure at least one message is present or use the current clean_text
+    if not msgs:
+        msgs.append(HumanMessage(content=clean_text))
+    
+    # ПЕЧАТЬ ДЛЯ ДЕБАГА (появится в логах docker)
+    print(f"DEBUG: Processing message for {user_id}. History size: {len(msgs)}")
+    
+    inputs = {'messages': msgs, 'agent_type': agent_type, m.get('model_override') or model_override: model_override, 'user_id': user_id}
     try:
         res = app.invoke(inputs, config={"recursion_limit": 50})
         ai_msg = res['messages'][-1]
