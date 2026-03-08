@@ -90,3 +90,21 @@ class ObsidianManager:
         return f"Удалено {count} конфликтных файлов."
 
 obsidian = ObsidianManager()
+
+# --- Внешние функции-инструменты для агентов ---
+
+def obsidian_capture_tool(content: str, title: str = None) -> str:
+    """
+    Инструмент для быстрого захвата текста в Obsidian Inbox.
+    Используется агентами для сохранения слов, фраз и заметок.
+    """
+    return obsidian.capture_to_inbox(content, title)
+
+def obsidian_read_note(relative_path: str) -> str:
+    """
+    Инструмент для чтения содержимого заметки из Obsidian.
+    Пусть указывается относительно корня хранилища (например, 'main/Notes.md').
+    """
+    res = obsidian.read_note(relative_path)
+    return res if res else "Заметка не найдена"
+

@@ -208,9 +208,15 @@ def clear_chat_history(user_id, agent_type=None):
     return True
 
 def get_model(model_name: str, temperature=0):
+    # ПРИНУДИТЕЛЬНАЯ УСТАНОВКА API КЛЮЧА ИЗ КОНФИГА
     if model_name.startswith('gemini'):
+        import os
+        from config import config
+        if config.google_api_key:
+            os.environ["GOOGLE_API_KEY"] = config.google_api_key
+        
         from langchain_google_genai import ChatGoogleGenerativeAI
-        # Удаляем version="v1beta", так как это вызывает ошибку в текущей версии библиотеки
+        print(f"DEBUG: Initializing Gemini model: {model_name}")
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
     elif model_name.startswith('llama') or model_name.startswith('mixtral'):
         from langchain_groq import ChatGroq
@@ -234,7 +240,9 @@ def is_ollama_online():
 
 SYSTEM_PROMPTS = {
     'general': 'Ты полезный ИИ-помощник.',
-    'german': 'Ты Herr Max Klein, профессиональный учитель немецкого. Твой ученик — будущий аналитик данных. Твоя цель — снять языковой барьер. ПРАВИЛО: Все новые фразы и слова, которые мы обсуждаем, ты ДОЛЖЕН автоматически сохранять в Obsidian, используя инструмент obsidian_capture_tool. Не проси пользователя копировать текст вручную — делай это сам! Общайся на немецком, поясняй на русском. У тебя есть доступ к Obsidian через инструменты.',
+    'german': """Ты Herr Max Klein, опытный преподаватель немецкого языка использующий 
+    современные, проверенные и эффективные методики для обучения.
+""",
     'career': 'Ты экспертный консультант по трудоустройству в Германии и IT-сфере. Помогаешь с резюме, поиском вакансий и подготовкой к интервью.',
     'vds_admin': 'Ты администратор VDS сервера. Используй инструменты для управления контейнерами и мониторинга.',
     'local_admin': 'Ты администратор локального сервера (EuroStick). Используй инструменты для проверки статуса железа и синхронизации.'
@@ -254,59 +262,64 @@ def get_tools_for_agent(agent_type):
     return []
 
 def node_handler(state: AgentState):
-    agent_type = state['agent_type']
+    agent_type = state.get('agent_type', 'general')
     model_name = state.get('model_override') or 'gemini-3.1-flash-lite-preview'
     llm = get_model(model_name)
     tools = get_tools_for_agent(agent_type)
-    if tools: llm = llm.bind_tools(tools)
-    sys_msg = SystemMessage(content=SYSTEM_PROMPTS.get(agent_type, SYSTEM_PROMPTS['general']))
     
-    # Ensure messages are not empty and have strictly string content
-    formatted_messages = [sys_msg]
+    # СИСТЕМНЫЙ ПРОМПТ
+    sys_msg_text = SYSTEM_PROMPTS.get(agent_type, SYSTEM_PROMPTS['general'])
+    
+    # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ДЛЯ GEMINI 3/2.0+
+    # Модели Google API очень чувствительны к "пустым сообщениям" в истории.
+    # Ошибка 'contents are required' возникает, когда в запросе есть сообщение с пустым content.
+    formatted_messages = [SystemMessage(content=sys_msg_text)]
+    
     for m in state['messages']:
         content = m.content
         
-        # Если это ToolMessage, но content пустой - Gemini упадет с "contents are required"
-        if isinstance(m, ToolMessage):
-            if not content or str(content).strip() == "":
-                content = "Action completed successfully."
+        # 1. Извлекаем текст (может быть списком в некоторых версиях LangChain)
+        if isinstance(content, list):
+            text_parts = [p['text'] if isinstance(p, dict) and 'text' in p else str(p) for p in content]
+            content = " ".join(text_parts)
         
-        if content and isinstance(content, list):
-            text_parts = []
-            for part in content:
-                if isinstance(part, dict) and 'text' in part:
-                    text_parts.append(part['text'])
-                elif isinstance(part, str):
-                    text_parts.append(part)
-                else:
-                    text_parts.append(str(part))
-            content = "".join(text_parts)
-            
-        # Для Human/AI сообщений проверяем пустоту
-        if content and str(content).strip():
-            if isinstance(m, HumanMessage):
-                formatted_messages.append(HumanMessage(content=str(content)))
-            elif isinstance(m, AIMessage):
-                # Сохраняем tool_calls для AIMessage, если они есть
-                ai_extra = {}
-                if hasattr(m, 'tool_calls') and m.tool_calls:
-                    ai_extra['tool_calls'] = m.tool_calls
-                formatted_messages.append(AIMessage(content=str(content), **ai_extra))
-            elif isinstance(m, ToolMessage):
-                formatted_messages.append(ToolMessage(content=str(content), tool_call_id=m.tool_call_id))
+        content = str(content).strip() if content else ""
+        
+        # 2. Защита от пустоты
+        if not content:
+            if isinstance(m, ToolMessage):
+                content = "Action success."
+            elif isinstance(m, AIMessage) and hasattr(m, 'tool_calls') and m.tool_calls:
+                content = "I'll do that."
             else:
-                formatted_messages.append(m)
-        elif isinstance(m, AIMessage) and hasattr(m, 'tool_calls') and m.tool_calls:
-            # СТРАТЕГИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если AIMessage содержит только вызов инструмента (content пуст),
-            # Gemini ВСЕ РАВНО требует наличие строки content (хотя бы пробел или описание действия).
-            formatted_messages.append(AIMessage(content="Calling tool...", tool_calls=m.tool_calls))
+                content = "..." # Минимальный заполнитель
+
+        # 3. Пересборка
+        if isinstance(m, HumanMessage):
+            formatted_messages.append(HumanMessage(content=content))
+        elif isinstance(m, AIMessage):
+            t_calls = getattr(m, 'tool_calls', [])
+            formatted_messages.append(AIMessage(content=content, tool_calls=t_calls))
+        elif isinstance(m, ToolMessage):
+            formatted_messages.append(ToolMessage(content=content, tool_call_id=m.tool_call_id))
     
-    # ПРОВЕРКА: Если последнее сообщение - AIMessage с tool_calls, 
-    # а в списке НЕТ соответствующих ToolMessage, Gemini выдаст ошибку.
-    # Но здесь мы полагаемся на логику LangGraph.
-        
-    response = llm.invoke(formatted_messages)
-    return {'messages': [response]}
+    # Привязка инструментов
+    if tools:
+        llm = llm.bind_tools(tools)
+    
+    try:
+        response = llm.invoke(formatted_messages)
+        return {'messages': [response]}
+    except Exception as e:
+        error_str = str(e)
+        # fallback для 'contents are required': отправляем только sys + last human
+        if "contents are required" in error_str.lower() and len(formatted_messages) > 1:
+            print(f"DEBUG: Falling back to minimal context for {model_name}...")
+            # Пытаемся взять системный промпт и ПОСЛЕДНЕЕ сообщение от пользователя
+            fallback_msgs = [formatted_messages[0], formatted_messages[-1]]
+            response = llm.invoke(fallback_msgs)
+            return {'messages': [response]}
+        raise e
 
 def tool_node(state: AgentState):
     from core.admin_tools import admin_tools
@@ -418,11 +431,18 @@ def process_message(text, user_id, agent_type=None, thread_id=None, model_overri
     if not msgs:
         msgs.append(HumanMessage(content=clean_text))
     
-    # ПЕЧАТЬ ДЛЯ ДЕБАГА (появится в логах docker)
-    print(f"DEBUG: Processing message for {user_id}. History size: {len(msgs)}")
+    # ПЕЧАТЬ ДЛЯ ДЕБАГА
+    print(f"DEBUG: Processing message for {user_id}. Agent: {agent_type}. Model: {model_override}")
+    print(f"DEBUG: Messages structure: {[(m.type, m.content) for m in msgs]}")
     
-    inputs = {'messages': msgs, 'agent_type': agent_type, m.get('model_override') or model_override: model_override, 'user_id': user_id}
+    inputs = {
+        'messages': msgs, 
+        'agent_type': agent_type, 
+        'model_override': model_override, 
+        'user_id': user_id
+    }
     try:
+        # Убеждаемся, что в inputs есть все необходимые ключи для узла
         res = app.invoke(inputs, config={"recursion_limit": 50})
         ai_msg = res['messages'][-1]
         ai_text = ai_msg.content
