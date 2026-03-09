@@ -291,11 +291,13 @@ def node_handler(state: AgentState):
     # СИСТЕМНЫЙ ПРОМПТ
     sys_msg_text = SYSTEM_PROMPTS.get(agent_type, SYSTEM_PROMPTS['general'])
     
-    # --- ДИНАМИЧЕСКИЙ КОНТЕКСТ ДЛЯ УЧИТЕЛЯ ---
+    # --- ДИНАМИЧЕСКИЙ КОНТЕКСТ ДЛЯ УЧИТЕЛЯ (УЛУЧШЕННЫЙ) ---
     if agent_type == 'german':
         try:
-            profile_path = os.path.join(os.path.dirname(__file__), '..', 'knowledge', 'german', 'student_profile.md')
-            plan_path = os.path.join(os.path.dirname(__file__), '..', 'knowledge', 'german', 'learning_plan.md')
+            # Используем абсолютный путь для надежности на VDS
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            profile_path = os.path.join(base_dir, '..', 'knowledge', 'german', 'student_profile.md')
+            plan_path = os.path.join(base_dir, '..', 'knowledge', 'german', 'learning_plan.md')
             
             profile_content = ""
             if os.path.exists(profile_path):
@@ -307,9 +309,15 @@ def node_handler(state: AgentState):
                 with open(plan_path, 'r', encoding='utf-8') as f:
                     plan_content = f.read()
             
-            if profile_content or plan_content:
-                sys_msg_text += f"\n\n### ДАННЫЕ УЧЕНИКА И ПЛАН:\n{profile_content}\n\n{plan_content}"
-                sys_msg_text += "\n\nПРАВИЛО: Если ты обсуждаешь с учеником план, обязательно обнови файл learning_plan.md с помощью инструмента obsidian_capture_tool."
+            if profile_content:
+                # Внедряем данные в САМОЕ НАЧАЛО, чтобы модель не проигнорировала их
+                context_injection = f"\n\nКРИТИЧЕСКАЯ ИНФОРМАЦИЯ ОБ УЧЕНИКЕ (ПРОФИЛЬ):\n{profile_content}\n"
+                if plan_content and "Waiting for approval" not in plan_content:
+                    context_injection += f"\nТЕКУЩИЙ ПЛАН ОБУЧЕНИЯ:\n{plan_content}\n"
+                
+                sys_msg_text = context_injection + "\n" + sys_msg_text
+                # Добавляем явное указание на Alex
+                sys_msg_text += "\n\nПРАВИЛО: Ты уже знаком с Alex. Не забудь подтвердить, что ты видишь его цели из профиля."
         except Exception as e:
             print(f"Error loading german context: {e}")
 
