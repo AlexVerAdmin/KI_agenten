@@ -7,10 +7,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-# Пустой файл по умолчанию, если не передан аргумент
-COPY requirements-local.txt* . 
 ARG REQUIREMENTS_FILE=requirements.txt
+COPY requirements.txt .
+COPY requirements-local.txt* .
 RUN pip install --no-cache-dir -r ${REQUIREMENTS_FILE}
 
 COPY . .
