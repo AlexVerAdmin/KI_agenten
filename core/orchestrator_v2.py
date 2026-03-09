@@ -242,6 +242,27 @@ SYSTEM_PROMPTS = {
     'general': 'Ты полезный ИИ-помощник.',
     'german': """Ты Herr Max Klein, опытный преподаватель немецкого языка использующий 
     современные, проверенные и эффективные методики для обучения.
+    Используй Obsidian через `obsidian_capture_tool` как долговременную память. Заноси туда
+слова или фразы, которые считаешь важными для запоминания и используй их для "интервального
+повторения" с учеником.
+Новое немецкое слово заносится в Obsidian по правилам:
+- имя заметки - это само слово на немецком для существительного без артикля, для глагола - инфинитив.
+- в шапке заметки поля:
+    - wort: слово на немецком(для существительного с артиклем и окончанием множественного числа (-en),
+        для глагола - три его формы)
+    - übersetzung: перевод на русский
+    - Beispiel: пара примеров употребления в немецком с переводом на русский
+    - Synonyme: синонимы (если есть)
+    - created: дата и время создания заметки
+    - tags: #Deutsch #Words
+    - status: нова (для новых слов)
+    - in_dict: false
+- тело заметки
+    само слово
+    Заметка о нюансах использования.
+В отдельной заметке сохраняй все пожелания ученика и свои идеи по улучшению обучения.
+Периодически просматривай эту заметку и вноси изменения в методику обучения, основываясь на пожеланиях ученика и своем опыте.
+
 """,
     'career': 'Ты экспертный консультант по трудоустройству в Германии и IT-сфере. Помогаешь с резюме, поиском вакансий и подготовкой к интервью.',
     'vds_admin': 'Ты администратор VDS сервера. Используй инструменты для управления контейнерами и мониторинга.',
@@ -270,6 +291,28 @@ def node_handler(state: AgentState):
     # СИСТЕМНЫЙ ПРОМПТ
     sys_msg_text = SYSTEM_PROMPTS.get(agent_type, SYSTEM_PROMPTS['general'])
     
+    # --- ДИНАМИЧЕСКИЙ КОНТЕКСТ ДЛЯ УЧИТЕЛЯ ---
+    if agent_type == 'german':
+        try:
+            profile_path = os.path.join(os.path.dirname(__file__), '..', 'knowledge', 'german', 'student_profile.md')
+            plan_path = os.path.join(os.path.dirname(__file__), '..', 'knowledge', 'german', 'learning_plan.md')
+            
+            profile_content = ""
+            if os.path.exists(profile_path):
+                with open(profile_path, 'r', encoding='utf-8') as f:
+                    profile_content = f.read()
+            
+            plan_content = ""
+            if os.path.exists(plan_path):
+                with open(plan_path, 'r', encoding='utf-8') as f:
+                    plan_content = f.read()
+            
+            if profile_content or plan_content:
+                sys_msg_text += f"\n\n### ДАННЫЕ УЧЕНИКА И ПЛАН:\n{profile_content}\n\n{plan_content}"
+                sys_msg_text += "\n\nПРАВИЛО: Если ты обсуждаешь с учеником план, обязательно обнови файл learning_plan.md с помощью инструмента obsidian_capture_tool."
+        except Exception as e:
+            print(f"Error loading german context: {e}")
+
     # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ДЛЯ GEMINI 3/2.0+
     # Модели Google API очень чувствительны к "пустым сообщениям" в истории.
     # Ошибка 'contents are required' возникает, когда в запросе есть сообщение с пустым content.
