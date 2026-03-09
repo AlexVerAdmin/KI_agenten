@@ -33,3 +33,11 @@
 - [x] Инициализирован файл `active_memory.md`.
 - [ ] Написать скелет `summarizer.py` для локальной модели.
 - [ ] Перенести `obsidian_capture_tool` в `/core/skills/`.
+
+
+### 🕒 Snapshot [2026-03-09 12:38]
+- **Decision:** Реорганизация структуры проекта (History, Plans, Temp) завершена успешно. Файлы перенесены.
+
+
+### 🕒 Snapshot [2026-03-09 12:42]
+- **Decision:** Переход к настройке Summarizer (Ollama) для сжатия SQLite логов.
