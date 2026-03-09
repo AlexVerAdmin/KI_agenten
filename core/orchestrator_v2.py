@@ -242,27 +242,6 @@ SYSTEM_PROMPTS = {
     'general': 'Ты полезный ИИ-помощник.',
     'german': """Ты Herr Max Klein, опытный преподаватель немецкого языка использующий 
     современные, проверенные и эффективные методики для обучения.
-    Используй Obsidian через `obsidian_capture_tool` как долговременную память. Заноси туда
-слова или фразы, которые считаешь важными для запоминания и используй их для "интервального
-повторения" с учеником.
-Новое немецкое слово заносится в Obsidian по правилам:
-- имя заметки - это само слово на немецком для существительного без артикля, для глагола - инфинитив.
-- в шапке заметки поля:
-    - wort: слово на немецком(для существительного с артиклем и окончанием множественного числа (-en),
-        для глагола - три его формы)
-    - übersetzung: перевод на русский
-    - Beispiel: пара примеров употребления в немецком с переводом на русский
-    - Synonyme: синонимы (если есть)
-    - created: дата и время создания заметки
-    - tags: #Deutsch #Words
-    - status: нова (для новых слов)
-    - in_dict: false
-- тело заметки
-    само слово
-    Заметка о нюансах использования.
-В отдельной заметке сохраняй все пожелания ученика и свои идеи по улучшению обучения.
-Периодически просматривай эту заметку и вноси изменения в методику обучения, основываясь на пожеланиях ученика и своем опыте.
-
 """,
     'career': 'Ты экспертный консультант по трудоустройству в Германии и IT-сфере. Помогаешь с резюме, поиском вакансий и подготовкой к интервью.',
     'vds_admin': 'Ты администратор VDS сервера. Используй инструменты для управления контейнерами и мониторинга.',
@@ -271,9 +250,9 @@ SYSTEM_PROMPTS = {
 
 def get_tools_for_agent(agent_type):
     from core.admin_tools import admin_tools
-    from core.utils_obsidian import obsidian_capture_tool
+    from core.utils_obsidian import obsidian_capture_tool, save_german_knowledge
     if agent_type == 'german':
-        return [obsidian_capture_tool]
+        return [obsidian_capture_tool, save_german_knowledge]
     if agent_type in ['vds_admin', 'local_admin']:
         return [
             admin_tools.get_docker_status,
@@ -294,10 +273,15 @@ def node_handler(state: AgentState):
     # --- ДИНАМИЧЕСКИЙ КОНТЕКСТ ДЛЯ УЧИТЕЛЯ (УЛУЧШЕННЫЙ) ---
     if agent_type == 'german':
         try:
+            from config import config
             # Используем абсолютный путь для надежности на VDS
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            profile_path = os.path.join(base_dir, '..', 'knowledge', 'german', 'student_profile.md')
-            plan_path = os.path.join(base_dir, '..', 'knowledge', 'german', 'learning_plan.md')
+            knowledge_dir = config.knowledge_base_path if hasattr(config, 'knowledge_base_path') else os.path.join(base_dir, '..', 'knowledge')
+            
+            profile_path = os.path.join(knowledge_dir, 'german', 'student_profile.md')
+            plan_path = os.path.join(knowledge_dir, 'german', 'learning_plan.md')
+            
+            print(f"DEBUG: Loading context from {profile_path}")
             
             profile_content = ""
             if os.path.exists(profile_path):
@@ -336,7 +320,11 @@ def node_handler(state: AgentState):
         
         content = str(content).strip() if content else ""
         
-        # 2. Защита от пустоты
+        # 2. Очистка истории от системных ошибок
+        if "ошибка выполнения" in content.lower() or "contents are required" in content.lower():
+            continue
+
+        # 3. Защита от пустоты
         if not content:
             if isinstance(m, ToolMessage):
                 content = "Action success."
@@ -345,7 +333,7 @@ def node_handler(state: AgentState):
             else:
                 content = "..." # Минимальный заполнитель
 
-        # 3. Пересборка
+        # 4. Пересборка
         if isinstance(m, HumanMessage):
             formatted_messages.append(HumanMessage(content=content))
         elif isinstance(m, AIMessage):
@@ -354,12 +342,34 @@ def node_handler(state: AgentState):
         elif isinstance(m, ToolMessage):
             formatted_messages.append(ToolMessage(content=content, tool_call_id=m.tool_call_id))
     
-    # Привязка инструментов
-    if tools:
-        llm = llm.bind_tools(tools)
+    # ГАРАНТИРУЕМ, что в списке есть хотя бы одно сообщение после системного
+    if len(formatted_messages) == 1:
+        last_text = "Hallo!"
+        for m in reversed(state['messages']):
+            # ПРОВЕРКА: Сообщение не должно быть пустым И не должно содержать текст ошибки
+            m_text = str(m.content).strip()
+            if isinstance(m, HumanMessage) and m_text and "ошибка выполнения" not in m_text.lower() and "contents are required" not in m_text.lower():
+                last_text = m_text
+                break
+        formatted_messages.append(HumanMessage(content=last_text))
+
+    # СТРОГАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ: Gemini упадет если ПЕРВОЕ сообщение не Human или System
+    # Мы уже добавили SystemMessage первым.
+    
+    # ФИНАЛЬНЫЙ ТРЮК: Если Gemini все еще капризничает, принудительно очищаем все кроме System + Last Human
+    final_messages = formatted_messages
+    if "gemini-3.1" in model_name:
+         # Для 3.1 Pro Preview используем более агрессивную очистку, если в истории слишком много шума
+         if len(formatted_messages) > 10:
+             final_messages = [formatted_messages[0]] + formatted_messages[-5:]
     
     try:
-        response = llm.invoke(formatted_messages)
+        if tools:
+            # Привязваем инструменты ПЕРЕД вызовом, если они есть
+            llm_with_tools = llm.bind_tools(tools)
+            response = llm_with_tools.invoke(formatted_messages)
+        else:
+            response = llm.invoke(formatted_messages)
         return {'messages': [response]}
     except Exception as e:
         error_str = str(e)
@@ -368,7 +378,13 @@ def node_handler(state: AgentState):
             print(f"DEBUG: Falling back to minimal context for {model_name}...")
             # Пытаемся взять системный промпт и ПОСЛЕДНЕЕ сообщение от пользователя
             fallback_msgs = [formatted_messages[0], formatted_messages[-1]]
-            response = llm.invoke(fallback_msgs)
+            
+            # В fallback тоже проверяем инструменты
+            if tools:
+                llm_fallback = llm.bind_tools(tools)
+                response = llm_fallback.invoke(fallback_msgs)
+            else:
+                response = llm.invoke(fallback_msgs)
             return {'messages': [response]}
         raise e
 

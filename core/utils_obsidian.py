@@ -100,6 +100,39 @@ def obsidian_capture_tool(content: str, title: str = None) -> str:
     """
     return obsidian.capture_to_inbox(content, title)
 
+def save_german_knowledge(content: str, category: str = "general") -> str:
+    """
+    Специализированный инструмент для Herr Max Klein.
+    Сохраняет новые знания, слова или изменения в плане обучения в папку knowledge/german/.
+    category: 'vocab' (слова), 'grammar' (правила), 'plan' (изменения в обучении), 'progress' (заметки об успехах).
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    german_dir = os.path.abspath(os.path.join(base_dir, '..', 'knowledge', 'german'))
+    os.makedirs(german_dir, exist_ok=True)
+    
+    filename = f"{category}.md"
+    if category == "vocab":
+        filename = "vocabulary.md"
+    elif category == "plan":
+        filename = "learning_plan.md"
+        # Для плана мы перезаписываем (или дополняем), для вокабуляра — дополняем
+    
+    full_path = os.path.join(german_dir, filename)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+    mode = 'a' if category != 'plan' else 'w'
+    
+    try:
+        with open(full_path, mode, encoding='utf-8') as f:
+            if category == 'plan':
+                f.write(content)
+            else:
+                f.write(f"\n---\n> **{timestamp}**\n{content}\n")
+        return f"Успешно сохранено в {filename}"
+    except Exception as e:
+        return f"Ошибка при сохранении: {str(e)}"
+    return obsidian.capture_to_inbox(content, title)
+
 def obsidian_read_note(relative_path: str) -> str:
     """
     Инструмент для чтения содержимого заметки из Obsidian.
