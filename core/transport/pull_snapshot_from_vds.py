@@ -9,7 +9,7 @@ VDS_HOST = os.environ.get("VDS_SSH_HOST", "10.8.0.1")
 VDS_PORT = os.environ.get("VDS_SSH_PORT", "31117")
 VDS_USER = os.environ.get("VDS_SSH_USER", "alexadmin")
 VDS_KEY = os.path.expanduser(os.path.expandvars(os.environ.get("VDS_SSH_KEY_PATH", "")))
-VDS_REMOTE_EXPORT = os.environ.get("VDS_RUNTIME_EXPORT", "/home/alexadmin/AntigravityAgents/runtime_sync/export")
+VDS_REMOTE_EXPORT = os.environ.get("VDS_RUNTIME_EXPORT", "/home/alexadmin/stack/Agents/runtime_sync/export")
 
 def pull_from_vds(track_name: str) -> list:
     """Забирает файлы из VDS через SCP."""

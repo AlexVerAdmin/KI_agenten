@@ -13,7 +13,7 @@ VDS_HOST = os.environ.get("VDS_SSH_HOST", "10.8.0.1")
 VDS_PORT = os.environ.get("VDS_SSH_PORT", "31117")
 VDS_USER = os.environ.get("VDS_SSH_USER", "alexadmin")
 VDS_KEY = os.path.expanduser(os.path.expandvars(os.environ.get("VDS_SSH_KEY_PATH", "")))
-VDS_REMOTE_IMPORT = os.environ.get("VDS_RUNTIME_IMPORT", "/home/alexadmin/AntigravityAgents/runtime_sync/import")
+VDS_REMOTE_IMPORT = os.environ.get("VDS_RUNTIME_IMPORT", "/home/alexadmin/stack/Agents/runtime_sync/import")
 
 def push_to_vds(track_name: str) -> list:
     """Отправляет файлы на VDS через SCP."""
