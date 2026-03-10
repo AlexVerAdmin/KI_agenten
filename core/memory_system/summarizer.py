@@ -109,11 +109,18 @@ if __name__ == "__main__":
     
     if history and not isinstance(history, str):
         print(f"Found {len(ids)} new messages. Consulting Ollama ({MODEL_NAME})...")
+        print("--- HISTORY FOR OLLAMA ---")
+        print(history)
+        print("---------------------------")
         summary = generate_summary(history)
         
         if "Error" not in summary:
             result = update_active_memory(summary)
             print(result)
+        else:
+            print(summary)
+    else:
+        print(history if history else "No new messages to archive.")
         else:
             print(summary)
     else:
