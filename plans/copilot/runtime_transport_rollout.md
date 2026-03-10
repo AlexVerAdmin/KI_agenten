@@ -224,6 +224,11 @@ runtime_sync/
 3. Home Server суммаризирует.
 4. Результат возвращается в career summary/plan файлы.
 
+### Сценарий D. Obsidian & Copilot Sync (NEW)
+1. **Copilot History**: Инкрементальный экспорт `copilot_history.md` (только новые блоки).
+2. **Obsidian Vault Simulation**: Поиск новых/измененных `.md` файлов на VDS.
+3. **Sync**: Дальнейшая обработка на Home Server для вливания в Master Vault и генерации связей.
+
 ### Критерии Готовности Фазы 2
 1. Реальный SSH transport работает туда и обратно.
 2. Summary-файлы доходят на VDS.
