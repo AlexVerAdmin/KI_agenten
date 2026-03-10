@@ -250,9 +250,18 @@ SYSTEM_PROMPTS = {
 
 def get_tools_for_agent(agent_type):
     from core.admin_tools import admin_tools
-    from core.utils_obsidian import obsidian_capture_tool, save_german_knowledge
+    from core.utils_obsidian import obsidian_capture_tool
+    from core.skills.german_teacher import GermanTeacherSkills
+    
+    # Инициализируем навыки учителя (он сам определит VDS/Home)
+    german = GermanTeacherSkills()
+
     if agent_type == 'german':
-        return [obsidian_capture_tool, save_german_knowledge]
+        return [
+            obsidian_capture_tool, 
+            german.save_knowledge,
+            german.update_vocabulary
+        ]
     if agent_type in ['vds_admin', 'local_admin']:
         return [
             admin_tools.get_docker_status,
@@ -391,16 +400,27 @@ def node_handler(state: AgentState):
 def tool_node(state: AgentState):
     from core.admin_tools import admin_tools
     from core.utils_obsidian import obsidian_capture_tool
+    from core.skills.german_teacher import GermanTeacherSkills
+    
+    german = GermanTeacherSkills()
     last_message = state['messages'][-1]
     tool_results = []
+    
     if hasattr(last_message, 'tool_calls'):
         for tool_call in last_message.tool_calls:
             tool_name = tool_call['name']
             args = tool_call['args']
+            
+            # Стандартные инструменты
             if tool_name == 'get_docker_status': result = admin_tools.get_docker_status(**args)
             elif tool_name == 'check_connection': result = admin_tools.check_connection(**args)
             elif tool_name == 'run_remote_command': result = admin_tools.run_remote_command(**args)
             elif tool_name == 'obsidian_capture_tool': result = obsidian_capture_tool(**args)
+            
+            # Навыки учителя немецкого (Phase 4)
+            elif tool_name == 'save_knowledge': result = german.save_knowledge(**args)
+            elif tool_name == 'update_vocabulary': result = german.update_vocabulary(**args)
+            
             else: result = f"Error: Tool {tool_name} not found."
             
             # CRITICAL: Ensure tool output content is NOT empty
