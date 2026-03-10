@@ -1,14 +1,17 @@
 ---
 wort: {{ wort }}
+plural: {{ plural }}
 übersetzung: {{ uebersetzung }}
 Beispiel:
-  - {{ beispiel_1 }}
-  - {{ beispiel_2 }}
+  - de: {{ beispiel_1 }}
+    ru: {{ beispiel_1_translation }}
+  - de: {{ beispiel_2 }}
+    ru: {{ beispiel_2_translation }}
 created: {{ created }}
 tags:
   - Deutsch
   - Words
-status: nova
+status: нова
 in_dict: false
 ---
 

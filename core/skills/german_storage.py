@@ -45,15 +45,18 @@ class GermanStorage:
         for d in self.dirs.values():
             os.makedirs(d, exist_ok=True)
 
-    def _slugify(self, text: str) -> str:
+    def _slugify(self, text: str, preserve_case: bool = False) -> str:
         """Нормализация строки для имени файла."""
-        text = text.lower().strip()
+        text = text.strip()
         # Замена умлаутов для безопасности имен файлов
         replacements = {'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'}
         for char, rep in replacements.items():
             text = text.replace(char, rep)
+            text = text.replace(char.upper(), rep.capitalize() if preserve_case else rep)
+        if not preserve_case:
+            text = text.lower()
         # Убираем все кроме букв, цифр и дефисов
-        text = re.sub(r'[^a-z0-9\s-]', '', text)
+        text = re.sub(r'[^A-Za-z0-9\s-]', '', text)
         text = re.sub(r'\s+', '-', text)
         return text
 
@@ -67,7 +70,7 @@ class GermanStorage:
         # 1. Существительное (начинается с артикля der/die/das или Ein/Eine)
         noun_match = re.match(r'^(der|die|das)\s+([A-ZÄÖÜ][a-zäöüß]+)', w, re.IGNORECASE)
         if noun_match:
-            return 'noun', self._slugify(noun_match.group(2))
+            return 'noun', self._slugify(noun_match.group(2), preserve_case=True)
             
         # 2. Глагол (обычно содержит запятые для трех форм или заканчивается на -en/-eln/-ern)
         # Если есть запятые - скорее всего это формы глагола
@@ -77,9 +80,10 @@ class GermanStorage:
         
         # Эвристика на окончание инфинитива
         if w.lower().endswith(('en', 'eln', 'ern')) and ' ' not in w:
-             return 'verb', self._slugify(w)
+            return 'verb', self._slugify(w)
 
-        return 'other', self._slugify(w)
+        preserve_case = bool(re.match(r'^[A-ZÄÖÜ]', w))
+        return 'other', self._slugify(w, preserve_case=preserve_case)
 
     def _read_template(self, template_name: str) -> str:
         path = os.path.join(self.template_dir, f"{template_name}_template.md")
@@ -90,7 +94,7 @@ class GermanStorage:
 
     def save_word(self, wort_data: Dict) -> str:
         """
-        wort_data: { 'wort': 'die Wohnung -en', 'uebersetzung': '...', 'beispiele': [...], 'notes': '...' }
+        wort_data: { 'wort': 'die Wohnung -en', 'plural': 'Wohnungen', 'uebersetzung': '...', 'beispiele': [...], 'beispiel_uebersetzungen': [...], 'notes': '...' }
         """
         raw_wort = wort_data.get('wort', '')
         w_type, filename_base = self.detect_word_type(raw_wort)
@@ -104,13 +108,19 @@ class GermanStorage:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         
         beispiele = wort_data.get('beispiele', ["", ""])
+        beispiel_uebersetzungen = wort_data.get('beispiel_uebersetzungen', ["", ""])
         b1 = beispiele[0] if len(beispiele) > 0 else ""
         b2 = beispiele[1] if len(beispiele) > 1 else ""
+        b1_ru = beispiel_uebersetzungen[0] if len(beispiel_uebersetzungen) > 0 else ""
+        b2_ru = beispiel_uebersetzungen[1] if len(beispiel_uebersetzungen) > 1 else ""
         
         content = template.replace('{{ wort }}', raw_wort)
+        content = content.replace('{{ plural }}', wort_data.get('plural', ''))
         content = content.replace('{{ uebersetzung }}', wort_data.get('uebersetzung', ''))
         content = content.replace('{{ beispiel_1 }}', b1)
         content = content.replace('{{ beispiel_2 }}', b2)
+        content = content.replace('{{ beispiel_1_translation }}', b1_ru)
+        content = content.replace('{{ beispiel_2_translation }}', b2_ru)
         content = content.replace('{{ created }}', now)
         content = content.replace('{{ title }}', raw_wort)
         content = content.replace('{{ notes }}', wort_data.get('notes', ''))

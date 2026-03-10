@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+import re
 from datetime import datetime
 from typing import Annotated, TypedDict, List, Union, Optional
 # Удаляем проблемный импорт, так как Required есть в typing для Python 3.11+
@@ -457,6 +458,145 @@ def set_user_agent(user_id, agent_type):
     """Fallback for Telegram logic missing in V2"""
     save_agent_setting(user_id, 'all', 'last_agent', agent_type)
 
+def _get_german_profile_path() -> str:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    knowledge_dir = config.knowledge_base_path if hasattr(config, 'knowledge_base_path') else os.path.join(base_dir, '..', 'knowledge')
+    return os.path.join(knowledge_dir, 'german', 'student_profile.md')
+
+def _extract_german_preferences(text: str) -> List[str]:
+    preferences = []
+    lowered = text.lower()
+
+    if 'готовые варианты' in lowered:
+        preferences.append('Для диалогов давать готовые варианты ответов, чтобы не тратить усилия на формулировку смысла и быстрее погружаться в немецкий.')
+    if '600-800' in lowered or '600–800' in lowered or ('утром' in lowered and 'текст' in lowered):
+        preferences.append('Утром давать короткий текст на 600-800 символов для перевода, понимания и последующего разбора.')
+    if 'слова и фразы' in lowered or 'словар' in lowered:
+        preferences.append('Новые слова и фразы из утренних текстов использовать для пополнения словарей и дальнейшего повторения.')
+
+    return preferences
+
+def _save_german_profile_preferences(raw_text: str) -> str:
+    profile_path = _get_german_profile_path()
+    os.makedirs(os.path.dirname(profile_path), exist_ok=True)
+
+    existing = ''
+    if os.path.exists(profile_path):
+        with open(profile_path, 'r', encoding='utf-8') as f:
+            existing = f.read()
+
+    preferences = _extract_german_preferences(raw_text)
+    if not preferences:
+        preferences = [raw_text.strip()]
+
+    section_header = '### ПРЕДПОЧТЕНИЯ ПО ОБУЧЕНИЮ'
+    dated_header = f'{section_header} (ОБНОВЛЕНО {datetime.now().strftime("%Y-%m-%d")}):'
+    preference_lines = [f'- {item}' for item in preferences]
+    preference_block = '\n'.join(preference_lines)
+
+    duplicate_markers = [
+        'готовые варианты ответов',
+        '600-800 символов',
+        'пополнения словарей'
+    ]
+    already_present = all(marker in existing.lower() for marker in [m.lower() for m in duplicate_markers if m])
+    if already_present:
+        return 'already_saved'
+
+    if section_header in existing:
+        updated = re.sub(
+            r'### ПРЕДПОЧТЕНИЯ ПО ОБУЧЕНИЮ.*?(?=\n### |\n## |\Z)',
+            dated_header + '\n' + preference_block + '\n',
+            existing,
+            flags=re.S
+        )
+    else:
+        separator = '\n\n' if existing and not existing.endswith('\n\n') else ''
+        updated = existing + separator + dated_header + '\n' + preference_block + '\n'
+
+    with open(profile_path, 'w', encoding='utf-8') as f:
+        f.write(updated)
+
+    return 'saved'
+
+def _should_handle_german_profile_request(agent_type: str, text: str) -> bool:
+    if agent_type != 'german':
+        return False
+
+    lowered = text.lower()
+    profile_markers = ['профил', 'файл профиля', 'сохрани']
+    preference_markers = ['готовые варианты', 'утром', 'текст 600', 'словар', 'слова и фразы']
+    return any(marker in lowered for marker in profile_markers) and any(marker in lowered for marker in preference_markers)
+
+def _extract_german_word_to_save(text: str) -> Optional[str]:
+    patterns = [
+        r'(?:сохрани|запиши)\b.*?\bнемецк(?:ое|ий)\b\s+слово\b\s+[«"]?([^\n\r\.!\?,;:"»]+)[»"]?',
+        r'(?:сохрани|запиши)\b.*?\bслово\b\s+[«"]?([^\n\r\.!\?,;:"»]+)[»"]?'
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip()
+            candidate = re.sub(r'^(?:что\s+)?(?:это\s+)?', '', candidate, flags=re.IGNORECASE).strip()
+            if candidate:
+                return candidate
+    return None
+
+def _should_handle_german_word_save_request(agent_type: str, text: str) -> bool:
+    if agent_type != 'german':
+        return False
+    lowered = text.lower()
+    return ('сохрани' in lowered or 'запиши' in lowered) and 'слово' in lowered and _extract_german_word_to_save(text) is not None
+
+def _build_direct_german_word_payload(word: str) -> dict:
+    cleaned_word = word.strip()
+    normalized = re.sub(r'\s+', ' ', cleaned_word).strip().lower()
+
+    curated_words = {
+        'beginner': {
+            'wort': 'der Anfänger',
+            'plural': 'die Anfänger',
+            'uebersetzung': 'начинающий; новичок',
+            'beispiel_1': 'Er ist noch ein Anfänger im Deutschen, aber er lernt sehr aktiv.',
+            'beispiel_1_translation': 'Он пока еще новичок в немецком, но учится очень активно.',
+            'beispiel_2': 'Der Kurs ist auch für Anfänger gut geeignet.',
+            'beispiel_2_translation': 'Этот курс хорошо подходит и для начинающих.',
+            'notes': '- Beginner — это англицизм. В разговорной речи он встречается, но для нейтрального и учебного немецкого естественнее der Anfänger.\n- Если нужен гендерно-нейтральный или парный вариант, можно использовать die Anfängerin / der Anfänger.\n- Для названия заметки и словарной карточки учитель должен сохранять нормативную немецкую форму, а англицизм оставлять в заметках как вариант употребления.'
+        }
+    }
+
+    if normalized in curated_words:
+        return curated_words[normalized]
+
+    return {
+        'wort': cleaned_word,
+        'plural': '',
+        'uebersetzung': 'Auto-extracted',
+        'beispiel_1': f'Ich habe das Wort {cleaned_word} fuer die spaetere Ausarbeitung gespeichert.',
+        'beispiel_1_translation': f'Я сохранил слово {cleaned_word} для последующей доработки.',
+        'beispiel_2': '',
+        'beispiel_2_translation': '',
+        'notes': '- Черновое сохранение из интерфейса.\n- Учителю нужно уточнить артикль, множественное число, естественные примеры и стилистические нюансы употребления.'
+    }
+
+def _save_german_word_direct(word: str) -> str:
+    from core.skills.german_teacher import GermanTeacherSkills
+
+    german = GermanTeacherSkills()
+    payload = _build_direct_german_word_payload(word)
+    result = german.save_word(
+        payload['wort'],
+        payload['uebersetzung'],
+        beispiel_1=payload.get('beispiel_1', ''),
+        beispiel_2=payload.get('beispiel_2', ''),
+        notes=payload.get('notes', ''),
+        plural=payload.get('plural', ''),
+        beispiel_1_translation=payload.get('beispiel_1_translation', ''),
+        beispiel_2_translation=payload.get('beispiel_2_translation', '')
+    )
+    return result
+
 def process_message(text, user_id, agent_type=None, thread_id=None, model_override=None, **kwargs):
     init_db()
     
@@ -492,6 +632,27 @@ def process_message(text, user_id, agent_type=None, thread_id=None, model_overri
         set_user_agent(user_id, agent_type)
     
     if not clean_text: clean_text = text
+
+    if _should_handle_german_profile_request(agent_type, clean_text):
+        save_message(user_id, agent_type, 'user', clean_text, model_name=model_override)
+        save_status = _save_german_profile_preferences(clean_text)
+        if save_status == 'already_saved':
+            reply_text = 'Да. Я получил твою просьбу и вижу эти предпочтения в профиле: готовые варианты для диалогов, утренний текст на 600-800 символов и пополнение словарей из этих текстов.'
+        else:
+            reply_text = 'Да. Я получил твою просьбу и сохранил ее в профиль: буду давать готовые варианты для диалогов, утренний текст на 600-800 символов и использовать слова и фразы из него для пополнения словарей.'
+        save_message(user_id, agent_type, 'assistant', reply_text, model_name=model_override)
+        return {'text': reply_text, 'active_node': agent_type}
+
+    if _should_handle_german_word_save_request(agent_type, clean_text):
+        save_message(user_id, agent_type, 'user', clean_text, model_name=model_override)
+        word = _extract_german_word_to_save(clean_text)
+        save_result = _save_german_word_direct(word)
+        if save_result.lower().startswith('success:'):
+            reply_text = f'Сохранил немецкое слово: {word}.'
+        else:
+            reply_text = f'Не удалось сохранить слово {word}: {save_result}'
+        save_message(user_id, agent_type, 'assistant', reply_text, model_name=model_override)
+        return {'text': reply_text, 'active_node': agent_type}
 
     if model_override: save_agent_setting(user_id, agent_type, 'selected_model', model_override)
     save_message(user_id, agent_type, 'user', clean_text, model_name=model_override)

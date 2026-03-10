@@ -1,5 +1,6 @@
 import os
 import datetime
+from typing import List, Optional
 from .german_storage import GermanStorage
 
 class GermanTeacherSkills:
@@ -11,7 +12,7 @@ class GermanTeacherSkills:
         self.storage = GermanStorage(workspace_root)
         self.is_vds = self.storage.is_vds
 
-    def save_word(self, wort: str, uebersetzung: str, beispiel_1: str = "", beispiel_2: str = "", notes: str = "") -> str:
+    def save_word(self, wort: str, uebersetzung: str, beispiel_1: str = "", beispiel_2: str = "", notes: str = "", plural: str = "", beispiel_1_translation: str = "", beispiel_2_translation: str = "") -> str:
         """
         Сохраняет отдельное слово (существительное или глагол) по шаблону в Obsidian.
         Для существительного имя файла будет без артикаля.
@@ -21,7 +22,9 @@ class GermanTeacherSkills:
             'wort': wort,
             'uebersetzung': uebersetzung,
             'beispiele': [beispiel_1, beispiel_2],
-            'notes': notes
+            'beispiel_uebersetzungen': [beispiel_1_translation, beispiel_2_translation],
+            'notes': notes,
+            'plural': plural
         }
         return self.storage.save_word(data)
 
@@ -39,7 +42,7 @@ class GermanTeacherSkills:
         }
         return self.storage.save_phrase(data)
 
-    def update_learning_plan(self, goals: list = None, focus: str = "") -> str:
+    def update_learning_plan(self, goals: Optional[List[str]] = None, focus: str = "") -> str:
         """Обновление файла плана обучения (инициализация/фокус)."""
         data = {
             'goals': goals or [],

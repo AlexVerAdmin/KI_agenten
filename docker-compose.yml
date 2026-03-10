@@ -3,6 +3,7 @@ services:
   bot:
     build: .
     command: python bot.py
+    user: "1001:1001"
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -13,6 +14,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./obsidian:/app/obsidian
+      - ./obsidian_vault_simulation:/app/obsidian_vault_simulation
       - ./chroma_db:/app/chroma_db
     env_file: .env
     networks:
@@ -22,6 +24,7 @@ services:
   ui:
     build: .
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    user: "1001:1001"
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -32,6 +35,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./obsidian:/app/obsidian
+      - ./obsidian_vault_simulation:/app/obsidian_vault_simulation
       - ./chroma_db:/app/chroma_db
     env_file: .env
     networks:
