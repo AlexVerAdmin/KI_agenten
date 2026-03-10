@@ -1,72 +1,67 @@
 import os
 import datetime
-from core.utils_obsidian import ObsidianManager
+from .german_storage import GermanStorage
 
 class GermanTeacherSkills:
     """
-    Набор инструментов для Herr Max Klein (Учителя немецкого языка),
-    адаптированный для работы как на VDS (с перенаправлением в транспорт),
-    так и на Home Server (с прямой записью в Obsidian).
+    Интерфейс учителя Herr Max Klein для работы с Obsidian через GermanStorage.
     """
     
     def __init__(self, workspace_root: str = None):
-        if workspace_root is None:
-            self.workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        else:
-            self.workspace_root = workspace_root
-            
-        # Проверка на наличие obsidian_vault_simulation (маркер VDS)
-        self.is_vds = os.path.exists(os.path.join(self.workspace_root, 'obsidian_vault_simulation'))
-        
-        # Базовая папка для немецкого языка
-        if self.is_vds:
-            self.german_dir = os.path.join(self.workspace_root, 'obsidian_vault_simulation', 'knowledge', 'german')
-        else:
-            # На Home Server пишем сразу в Master Vault (путь из .env обычно, но тут пока по структуре)
-            # ВНИМАНИЕ: На Home Server папка knowledge/german должна существовать в Master Vault
-            self.german_dir = os.path.join(self.workspace_root, 'knowledge', 'german')
+        self.storage = GermanStorage(workspace_root)
+        self.is_vds = self.storage.is_vds
+
+    def save_word(self, wort: str, uebersetzung: str, beispiel_1: str = "", beispiel_2: str = "", notes: str = "") -> str:
+        """
+        Сохраняет отдельное слово (существительное или глагол) по шаблону в Obsidian.
+        Для существительного имя файла будет без артикаля.
+        Для глагола — инфинитив.
+        """
+        data = {
+            'wort': wort,
+            'uebersetzung': uebersetzung,
+            'beispiele': [beispiel_1, beispiel_2],
+            'notes': notes
+        }
+        return self.storage.save_word(data)
+
+    def save_phrase(self, phrase: str, uebersetzung: str, context: str = "", usage: str = "", beispiel_1: str = "", beispiel_2: str = "", notes: str = "") -> str:
+        """
+        Сохраняет отдельную фразу по шаблону.
+        """
+        data = {
+            'phrase': phrase,
+            'uebersetzung': uebersetzung,
+            'context': context,
+            'usage': usage,
+            'beispiele': [beispiel_1, beispiel_2],
+            'notes': notes
+        }
+        return self.storage.save_phrase(data)
+
+    def update_learning_plan(self, goals: list = None, focus: str = "") -> str:
+        """Обновление файла плана обучения (инициализация/фокус)."""
+        data = {
+            'goals': goals or [],
+            'focus': focus
+        }
+        return self.storage.update_learning_plan(data)
 
     def save_knowledge(self, content: str, category: str = "vocab") -> str:
         """
-        Сохраняет знания (лексику, грамматику, прогресс) в нужную категорию.
-        category: 'vocab', 'grammar', 'progress', 'plan'
+        Legacy-фасад для обратной совместимости. 
+        Перенаправляет в новые методы сохранения, если это возможно.
         """
-        os.makedirs(self.german_dir, exist_ok=True)
-        
-        mapping = {
-            "vocab": "vocabulary.md",
-            "grammar": "grammar.md",
-            "plan": "learning_plan.md",
-            "progress": "progress.md"
-        }
-        
-        filename = mapping.get(category, f"{category}.md")
-        full_path = os.path.join(self.german_dir, filename)
-        
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        
-        # Для плана 'w' (перезапись), для остального 'a' (дополнение)
-        mode = 'w' if category == 'plan' else 'a'
-        
-        try:
-            with open(full_path, mode, encoding='utf-8') as f:
-                if category == 'plan':
-                    f.write(content)
-                else:
-                    f.write(f"\n---\n> **Recorded at {timestamp}**\n{content}\n")
+        if category == "vocab":
+            # Simple fallback
+            return self.save_word(content, "Auto-extracted", notes="Legacy input")
             
-            status = " [Transport Queued]" if self.is_vds else " [Local Master Vault]"
-            return f"Success: Saved to {filename}{status}"
-        except Exception as e:
-            return f"Error saving German knowledge: {str(e)}"
+        return f"Warning: Category '{category}' is legacy. Use save_word/save_phrase/update_plan."
 
     def update_vocabulary(self, word: str, translation: str, example: str = "") -> str:
-        """Специальный метод для быстрого добавления слов."""
-        entry = f"**{word}** — {translation}"
-        if example:
-            entry += f"\n*Example: {example}*"
-        return self.save_knowledge(entry, "vocab")
+        """Legacy-метод, теперь использует поштучное сохранение."""
+        return self.save_word(word, translation, beispiel_1=example)
 
     def get_status(self) -> str:
-        """Возвращает текущий режим работы навыка."""
-        return "VDS Mode (Sync active)" if self.is_vds else "Home Server Mode (Direct access)"
+        mode = "VDS (Sync-Ready)" if self.is_vds else "Home Server (Direct Vault)"
+        return f"Herr Max Klein is active in {mode} Mode."

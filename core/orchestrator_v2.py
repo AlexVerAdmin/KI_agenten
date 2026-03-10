@@ -259,8 +259,10 @@ def get_tools_for_agent(agent_type):
     if agent_type == 'german':
         return [
             obsidian_capture_tool, 
-            german.save_knowledge,
-            german.update_vocabulary
+            german.save_word,
+            german.save_phrase,
+            german.update_learning_plan,
+            german.save_knowledge
         ]
     if agent_type in ['vds_admin', 'local_admin']:
         return [
@@ -418,8 +420,10 @@ def tool_node(state: AgentState):
             elif tool_name == 'obsidian_capture_tool': result = obsidian_capture_tool(**args)
             
             # Навыки учителя немецкого (Phase 4)
+            elif tool_name == 'save_word': result = german.save_word(**args)
+            elif tool_name == 'save_phrase': result = german.save_phrase(**args)
+            elif tool_name == 'update_learning_plan': result = german.update_learning_plan(**args)
             elif tool_name == 'save_knowledge': result = german.save_knowledge(**args)
-            elif tool_name == 'update_vocabulary': result = german.update_vocabulary(**args)
             
             else: result = f"Error: Tool {tool_name} not found."
             
