@@ -121,7 +121,3 @@ if __name__ == "__main__":
             print(summary)
     else:
         print(history if history else "No new messages to archive.")
-        else:
-            print(summary)
-    else:
-        print(history if history else "No new messages to archive.")
