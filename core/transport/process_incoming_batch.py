@@ -21,8 +21,11 @@ except ImportError:
         def generate_summary(self, text: str) -> str:
             return f"--- [SIMULATED SUMMARY] ---\nContent length: {len(text)}"
 
+# Путь к вашему основному Obsidian Vault (Мастер-копия на сервере)
+MASTER_OBSIDIAN_DIR = Path(os.environ.get("OBSIDIAN_VAULT_PATH", PROJECT_ROOT / "history" / "obsidian_master"))
+
 def process_batch(track_name: str):
-    """Берет файлы из incoming/{track} и генерирует summary в outgoing/{track}."""
+    """Берет файлы из incoming/{track} и распределяет их по назначению."""
     incoming_track_dir = INCOMING_DIR / track_name
     outgoing_track_dir = OUTGOING_DIR / track_name
     
@@ -39,36 +42,48 @@ def process_batch(track_name: str):
         return
 
     for file_path in files_to_process:
-        print(f"[{track_name}] Processing {file_path.name}...")
+        filename = file_path.name
+        print(f"[{track_name}] Routing {filename}...")
         
-        # 1. Читаем данные
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        # 1. МАРШРУТИЗАЦИЯ
+        
+        # СЛУЧАЙ А: Файлы Obsidian (приходят в infra)
+        if filename.startswith("obs_sync_"):
+            # Извлекаем оригинальное имя (удаляем префикс obs_sync_timestamp_)
+            # Пример: obs_sync_123456_test.md -> test.md
+            parts = filename.split("_")
+            original_name = "_".join(parts[3:]) if len(parts) > 3 else filename
             
-        # 2. Маскируем секреты перед любой обработкой
-        safe_content = mask_secrets(content)
-        
-        # 3. Суммаризация
-        summary = summarizer.generate_summary(safe_content)
-        
-        # 4. Сохраняем результат в outgoing
-        timestamp = int(time.time())
-        output_file = outgoing_track_dir / f"summary_{timestamp}_{file_path.name}.md"
-        
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(summary)
+            target_path = MASTER_OBSIDIAN_DIR / original_name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
             
-        print(f"[{track_name}] Saved summary to {output_file.name}")
-        
-        # 5. Обновляем состояние
+            shutil.copy2(file_path, target_path)
+            print(f"  -> [OBSIDIAN] Synced to Master Vault: {target_path}")
+            
+        # СЛУЧАЙ Б: Дельта истории Copilot
+        elif filename.startswith("copilot_delta_"):
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            safe_content = mask_secrets(content)
+            summary = summarizer.generate_summary(safe_content)
+            
+            timestamp = int(time.time())
+            output_file = outgoing_track_dir / f"summary_{timestamp}_{filename}.md"
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(summary)
+            print(f"  -> [SUMMARY] Created summary for history delta: {output_file.name}")
+
+        # СЛУЧАЙ В: SQLite батчи
+        elif filename.startswith("sqlite_batch_"):
+            print(f"  -> [SQLITE] Processing structured logs (TBD logic)...")
+            # Здесь можно добавить логику вставки в локальную БД если нужно
+
+        # 2. ОЧИСТКА И ОБНОВЛЕНИЕ STATE
         state["processed_batches"].append({
-            "filename": file_path.name,
-            "processed_at": timestamp,
-            "summary_file": output_file.name
+            "filename": filename,
+            "processed_at": int(time.time())
         })
-        
-        # 6. В реальности мы бы удалили или переместили архив
-        # Здесь в Phase 1 симуляция: удаляем из incoming
         file_path.unlink()
         
     save_state(track_name, state)
