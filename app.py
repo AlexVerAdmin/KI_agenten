@@ -192,12 +192,15 @@ MODEL_OPTIONS = {
 saved_model = get_agent_setting(st.session_state.user_id, current_agent_key, 'selected_model')
 model_keys = list(MODEL_OPTIONS.keys())
 
+if current_agent_key == 'german' and saved_model in {'gemini-3.1-pro-preview', 'gemini-3-flash-preview'}:
+    saved_model = 'gemini-2.5-pro'
+
 # Определяем индекс для отображения в селектбоксе
 if saved_model in model_keys:
     default_index = model_keys.index(saved_model)
 else:
     # Дефолтные значения если ничего не сохранено
-    if current_agent_key == 'german': default_index = model_keys.index('gemini-3.1-pro-preview')
+    if current_agent_key == 'german': default_index = model_keys.index('gemini-2.5-pro')
     elif current_agent_key in ['vds_admin', 'local_admin']: default_index = model_keys.index('ollama/llama3.1:8b')
     else: default_index = model_keys.index('llama-3.3-70b-versatile')
 

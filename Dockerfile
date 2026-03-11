@@ -15,9 +15,10 @@ RUN pip install --no-cache-dir -r ${REQUIREMENTS_FILE}
 COPY . .
 
 # Создаем папки с нужными правами
-RUN mkdir -p /app/data /app/obsidian /app/chroma_db
+RUN mkdir -p /app/data /app/obsidian /app/chroma_db /app/obsidian_vault_simulation
 
 ENV PYTHONUNBUFFERED=1
+ENV HOME=/tmp
 ENV OBSIDIAN_VAULT_PATH=/app/obsidian
 ENV SQLITE_DB_PATH=/app/data/memory_v2.sqlite
 

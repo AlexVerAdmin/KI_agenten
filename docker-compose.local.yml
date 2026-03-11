@@ -16,8 +16,11 @@ services:
       - ${JOB_SEARCH_PATH}:/app/job_search:ro
       # Хранилище для локальной векторной базы ChromaDB
       - ./local_chroma_db:/app/chroma_db
+            # Монтируем SSH ключ для транспорта
+      - /home/alexadmin/.ssh/vds:/root/.ssh/vds:ro
     environment:
       - OBSIDIAN_VAULT_PATH=${OBSIDIAN_VAULT_PATH}
+      - VDS_SSH_KEY_PATH=/root/.ssh/vds
       - JOB_SEARCH_PATH=${JOB_SEARCH_PATH}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - IS_WORKER_NODE=true

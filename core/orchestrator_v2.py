@@ -249,6 +249,29 @@ SYSTEM_PROMPTS = {
     'local_admin': 'Ты администратор локального сервера (EuroStick). Используй инструменты для проверки статуса железа и синхронизации.'
 }
 
+def _message_text(content) -> str:
+    if isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, dict) and 'text' in part:
+                text_parts.append(str(part['text']))
+            elif hasattr(part, 'text'):
+                text_parts.append(str(part.text))
+            else:
+                text_parts.append(str(part))
+        content = ' '.join(text_parts)
+    return str(content).strip() if content else ''
+
+def _extract_last_human_text(messages: List[BaseMessage], default: str = 'Hallo!') -> str:
+    for message in reversed(messages):
+        if not isinstance(message, HumanMessage):
+            continue
+        text = _message_text(message.content)
+        lowered = text.lower()
+        if text and 'ошибка выполнения' not in lowered and 'contents are required' not in lowered:
+            return text
+    return default
+
 def get_tools_for_agent(agent_type):
     from core.admin_tools import admin_tools
     from core.utils_obsidian import obsidian_capture_tool
@@ -275,7 +298,7 @@ def get_tools_for_agent(agent_type):
 
 def node_handler(state: AgentState):
     agent_type = state.get('agent_type', 'general')
-    model_name = state.get('model_override') or 'gemini-3.1-flash-lite-preview'
+    model_name = state.get('model_override') or 'gemini-2.5-pro'
     llm = get_model(model_name)
     tools = get_tools_for_agent(agent_type)
     
@@ -313,7 +336,7 @@ def node_handler(state: AgentState):
                 
                 sys_msg_text = context_injection + "\n" + sys_msg_text
                 # Добавляем явное указание на Alex
-                sys_msg_text += "\n\nПРАВИЛО: Ты уже знаком с Alex. Не забудь подтвердить, что ты видишь его цели из профиля."
+                sys_msg_text += "\n\nПРАВИЛО: Ты уже знаком с Alex и его целями. Веди диалог естественно. НЕ начинай ответ с приветствия и НЕ повторяй каждый раз, что ты прочитал профиль. Просто продолжай текущее общение."
         except Exception as e:
             print(f"Error loading german context: {e}")
 
@@ -323,14 +346,7 @@ def node_handler(state: AgentState):
     formatted_messages = [SystemMessage(content=sys_msg_text)]
     
     for m in state['messages']:
-        content = m.content
-        
-        # 1. Извлекаем текст (может быть списком в некоторых версиях LangChain)
-        if isinstance(content, list):
-            text_parts = [p['text'] if isinstance(p, dict) and 'text' in p else str(p) for p in content]
-            content = " ".join(text_parts)
-        
-        content = str(content).strip() if content else ""
+        content = _message_text(m.content)
         
         # 2. Очистка истории от системных ошибок
         if "ошибка выполнения" in content.lower() or "contents are required" in content.lower():
@@ -343,7 +359,7 @@ def node_handler(state: AgentState):
             elif isinstance(m, AIMessage) and hasattr(m, 'tool_calls') and m.tool_calls:
                 content = "I'll do that."
             else:
-                content = "..." # Минимальный заполнитель
+                content = "..."
 
         # 4. Пересборка
         if isinstance(m, HumanMessage):
@@ -356,48 +372,48 @@ def node_handler(state: AgentState):
     
     # ГАРАНТИРУЕМ, что в списке есть хотя бы одно сообщение после системного
     if len(formatted_messages) == 1:
-        last_text = "Hallo!"
-        for m in reversed(state['messages']):
-            # ПРОВЕРКА: Сообщение не должно быть пустым И не должно содержать текст ошибки
-            m_text = str(m.content).strip()
-            if isinstance(m, HumanMessage) and m_text and "ошибка выполнения" not in m_text.lower() and "contents are required" not in m_text.lower():
-                last_text = m_text
-                break
-        formatted_messages.append(HumanMessage(content=last_text))
+        formatted_messages.append(HumanMessage(content=_extract_last_human_text(state['messages'])))
 
     # СТРОГАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ: Gemini упадет если ПЕРВОЕ сообщение не Human или System
     # Мы уже добавили SystemMessage первым.
     
     # ФИНАЛЬНЫЙ ТРЮК: Если Gemini все еще капризничает, принудительно очищаем все кроме System + Last Human
     final_messages = formatted_messages
-    if "gemini-3.1" in model_name:
-         # Для 3.1 Pro Preview используем более агрессивную очистку, если в истории слишком много шума
-         if len(formatted_messages) > 10:
-             final_messages = [formatted_messages[0]] + formatted_messages[-5:]
+    if model_name.startswith('gemini') and len(formatted_messages) > 15:
+        recent_messages = [message for message in formatted_messages[1:] if isinstance(message, (HumanMessage, AIMessage, ToolMessage))]
+        final_messages = [formatted_messages[0]] + recent_messages[-10:]
     
     try:
         if tools:
             # Привязваем инструменты ПЕРЕД вызовом, если они есть
             llm_with_tools = llm.bind_tools(tools)
-            response = llm_with_tools.invoke(formatted_messages)
+            response = llm_with_tools.invoke(final_messages)
         else:
-            response = llm.invoke(formatted_messages)
+            response = llm.invoke(final_messages)
         return {'messages': [response]}
     except Exception as e:
         error_str = str(e)
         # fallback для 'contents are required': отправляем только sys + last human
-        if "contents are required" in error_str.lower() and len(formatted_messages) > 1:
+        if "contents are required" in error_str.lower() and len(final_messages) > 1:
             print(f"DEBUG: Falling back to minimal context for {model_name}...")
-            # Пытаемся взять системный промпт и ПОСЛЕДНЕЕ сообщение от пользователя
-            fallback_msgs = [formatted_messages[0], formatted_messages[-1]]
-            
-            # В fallback тоже проверяем инструменты
-            if tools:
-                llm_fallback = llm.bind_tools(tools)
-                response = llm_fallback.invoke(fallback_msgs)
-            else:
-                response = llm.invoke(fallback_msgs)
-            return {'messages': [response]}
+            last_human_text = _extract_last_human_text(state['messages'])
+            fallback_msgs = [SystemMessage(content=sys_msg_text), HumanMessage(content=last_human_text)]
+
+            try:
+                if tools:
+                    llm_fallback = llm.bind_tools(tools)
+                    response = llm_fallback.invoke(fallback_msgs)
+                else:
+                    response = llm.invoke(fallback_msgs)
+                return {'messages': [response]}
+            except Exception:
+                direct_prompt = (
+                    f"{sys_msg_text}\n\n"
+                    f"Последнее сообщение ученика:\n{last_human_text}\n\n"
+                    "Ответь полезно и продолжи урок."
+                )
+                response = llm.invoke([HumanMessage(content=direct_prompt)])
+                return {'messages': [response]}
         raise e
 
 def tool_node(state: AgentState):
