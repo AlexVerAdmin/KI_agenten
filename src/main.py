@@ -1,0 +1,80 @@
+"""
+Точка входа: запускает Telegram бот + FastAPI Web UI параллельно.
+Telegram polling работает в отдельном потоке через asyncio.
+"""
+
+import asyncio
+import logging
+import os
+import threading
+
+import uvicorn
+
+from src.db.conversations import init_db
+from src.gateway.web import app as web_app
+
+# Импортируем агентов чтобы зарегистрировались в router
+import src.agents.tutor  # noqa: F401
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def run_web():
+    """Запускает FastAPI в отдельном потоке."""
+    port = int(os.environ.get("WEB_PORT", 8080))
+    uvicorn.run(web_app, host="0.0.0.0", port=port, log_level="info")
+
+
+async def run_telegram():
+    """Запускает Telegram polling."""
+    from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+    from src.gateway.bot import start, bind_tutor, handle_message
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled")
+        return
+
+    app = ApplicationBuilder().token(token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("bind_tutor", bind_tutor))
+    app.add_handler(
+        MessageHandler((filters.TEXT | filters.VOICE) & (~filters.COMMAND), handle_message)
+    )
+    await app.initialize()
+    await app.start()
+    logger.info("Telegram bot started, polling...")
+    await app.updater.start_polling()
+    # Держим живым пока не получим сигнал
+    stop_event = asyncio.Event()
+    try:
+        await stop_event.wait()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+
+
+def main():
+    init_db()
+
+    # Web в отдельном потоке
+    web_thread = threading.Thread(target=run_web, daemon=True)
+    web_thread.start()
+    logger.info("Web UI started on :8080")
+
+    # Telegram в asyncio
+    try:
+        asyncio.run(run_telegram())
+    except KeyboardInterrupt:
+        logger.info("Shutdown")
+
+
+if __name__ == "__main__":
+    main()
