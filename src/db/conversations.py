@@ -96,7 +96,3 @@ def get_recent_messages(agent: str, limit: int = 50) -> list[dict]:
             (agent, limit),
         ).fetchall()
     return [dict(r) for r in reversed(rows)]
-
-
-# Инициализация при импорте
-init_db()
