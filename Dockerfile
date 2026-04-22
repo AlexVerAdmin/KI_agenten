@@ -20,6 +20,8 @@ RUN mkdir -p /app/data /app/obsidian /app/chroma_db /app/obsidian_vault_simulati
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/tmp
 ENV OBSIDIAN_VAULT_PATH=/app/obsidian
-ENV SQLITE_DB_PATH=/app/data/memory_v2.sqlite
+ENV SQLITE_DB_PATH=/app/data/conversations.sqlite
 
-EXPOSE 8501
+EXPOSE 8080
+
+CMD ["python", "-m", "src.main"]
