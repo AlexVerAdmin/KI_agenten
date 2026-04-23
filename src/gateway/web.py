@@ -90,6 +90,9 @@ SETTINGS_HTML = """<!DOCTYPE html>
               transition: background 0.15s; }
   .save-btn:hover { background: #5a7aef; }
   .save-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .save-btn.user { background: #2a6a4a; }
+  .save-btn.user:hover { background: #3a8a5a; }
+  .save-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 
   .info { font-size: 12px; color: #555; margin-top: 4px; }
   .badge-global { font-size: 10px; background: #1a3a2a; color: #5aba8a;
@@ -232,9 +235,12 @@ function buildPane(agent, info, s) {
         <div class="info">Це "особистість" агента. Кожен користувач може змінити під себе через особисті налаштування.</div>
       </div>
     </div>
-    <button class="save-btn" onclick="saveGlobal('${agent}')">Зберегти глобальні налаштування</button>
-    <div style="margin-top:12px; font-size:12px; color:#555;">
-      Per-user overrides зберігаються на сторінці особистих налаштувань (після входу в систему).
+    <div class="save-actions">
+      <button class="save-btn" onclick="saveGlobal('${agent}')">💾 Зберегти глобально</button>
+      <button class="save-btn user" onclick="saveForMe('${agent}')">👤 Зберегти для мене</button>
+    </div>
+    <div style="margin-top:8px; font-size:12px; color:#555;">
+      <b>Глобально</b> — базові налаштування для всіх. <b>Для мене</b> — тільки твій override (поля: модель, промпт, голос TTS, мова UI).
     </div>
   `;
 }
@@ -260,7 +266,26 @@ async function saveGlobal(agent) {
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (data.ok) showToast('Збережено ✓');
+  if (data.ok) showToast('Збережено глобально ✓');
+  else showToast('Помилка: ' + (data.error || '?'), true);
+}
+
+async function saveForMe(agent) {
+  // тільки USER_OVERRIDABLE_FIELDS: model, system_prompt, tts_voice, tts_lang, ui_lang
+  const fields = ['model', 'system_prompt', 'tts_voice', 'tts_lang', 'ui_lang'];
+  const body = {};
+  for (const f of fields) {
+    const el = document.getElementById(`${agent}-${f}`);
+    if (!el) continue;
+    body[f] = el.value;
+  }
+  const res = await fetch(`/api/user-settings/${agent}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.ok) showToast('Збережено для тебе ✓');
   else showToast('Помилка: ' + (data.error || '?'), true);
 }
 
