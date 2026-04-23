@@ -102,7 +102,19 @@ HTML = """<!DOCTYPE html>
                   cursor: pointer; transition: background 0.15s; }
   #voice-toggle.on  { background: #1a3a2a; border-color: #3a8a5a; color: #5aba8a; }
   #voice-toggle.off { background: #222;    border-color: #333;    color: #666; }
+  /* Dialog mode toggle */
+  #dialog-toggle { background: #222; border: 1px solid #333; color: #666;
+                   padding: 4px 10px; border-radius: 6px; font-size: 13px;
+                   cursor: pointer; transition: background 0.15s; }
+  #dialog-toggle.on { background: #3a1a3a; border-color: #8a3a8a; color: #ca7aca; }
   #header-right { display: flex; align-items: center; gap: 8px; }
+  /* Microphone button */
+  #mic-btn { background: #222; border: 1px solid #333; color: #aaa;
+             padding: 10px 14px; border-radius: 8px; font-size: 16px;
+             cursor: pointer; transition: background 0.15s; }
+  #mic-btn.listening { background: #3a1a1a; border-color: #e05555;
+                       color: #e05555; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
 
   /* Delete button */
   .msg-wrap { position: relative; display: flex; }
@@ -128,6 +140,7 @@ HTML = """<!DOCTYPE html>
     <span id="header-title">Выберите агента</span>
     <div id="header-right">
       <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">&#x1F507;</button>
+      <button id="dialog-toggle" class="off" onclick="toggleDialog()" title="Авто-диалог: после ответа агента микрофон включается автоматически">&#x1F504;</button>
       <select id="model-select" style="display:none" onchange="saveModel(this.value)">
       </select>
     </div>
@@ -136,6 +149,7 @@ HTML = """<!DOCTYPE html>
   <div id="input-area">
     <textarea id="msg-input" placeholder="Напишите сообщение..." rows="1"
               onkeydown="handleKey(event)"></textarea>
+    <button id="mic-btn" onclick="toggleMic()" title="Голосовой ввод">&#x1F3A4;</button>
     <button id="send-btn" onclick="sendMessage()">Отправить</button>
   </div>
 </div>
@@ -145,7 +159,56 @@ const AGENTS = AGENTS_JSON;
 let currentAgent = null;
 let ws = null;
 let availableModels = {};
-let voiceMode = false;  // голосовой режим (автоплей + TTS)
+let voiceMode = false;   // TTS + автоплей
+let dialogMode = false;  // авто-диалог: после ответа mic включается сам
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let micActive = false;
+
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
+  recognition.lang = 'de-DE';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  recognition.onresult = (e) => {
+    const input = document.getElementById('msg-input');
+    let interim = '', final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    input.value = final || interim;
+    if (final) {
+      stopMic();
+      setTimeout(() => sendMessage(), 100);
+    }
+  };
+
+  recognition.onerror = (e) => { stopMic(); };
+  recognition.onend = () => { if (micActive) stopMic(); };
+}
+
+function toggleMic() {
+  if (!recognition) { alert('Браузер не поддерживает Web Speech API'); return; }
+  micActive ? stopMic() : startMic();
+}
+
+function startMic() {
+  if (!recognition || !currentAgent) return;
+  micActive = true;
+  document.getElementById('msg-input').value = '';
+  document.getElementById('mic-btn').className = 'listening';
+  recognition.lang = currentAgent === 'tutor' ? 'de-DE' : 'ru-RU';
+  recognition.start();
+}
+
+function stopMic() {
+  micActive = false;
+  document.getElementById('mic-btn').className = '';
+  try { recognition.stop(); } catch(e) {}
+}
 
 function toggleVoice() {
   voiceMode = !voiceMode;
@@ -153,6 +216,15 @@ function toggleVoice() {
   btn.textContent = voiceMode ? '\U0001F50A' : '\U0001F507';
   btn.className = voiceMode ? 'on' : 'off';
   btn.title = voiceMode ? 'Отключить звук' : 'Включить звук';
+  if (!voiceMode && dialogMode) toggleDialog();
+}
+
+function toggleDialog() {
+  dialogMode = !dialogMode;
+  const btn = document.getElementById('dialog-toggle');
+  btn.className = dialogMode ? 'on' : 'off';
+  btn.title = dialogMode ? 'Авто-диалог: включён' : 'Авто-диалог: выключен';
+  if (dialogMode && !voiceMode) toggleVoice();
 }
 
 // Загрузить модели
@@ -246,6 +318,9 @@ function appendMessage(role, content, audioPath, source, animate, msgId) {
     audio.controls = true;
     audio.src = `/audio/${audioPath.split('/').pop()}`;
     audio.autoplay = animate;
+    if (animate && dialogMode) {
+      audio.onended = () => { if (dialogMode) startMic(); };
+    }
     div.appendChild(audio);
   }
 
