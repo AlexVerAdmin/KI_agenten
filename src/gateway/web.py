@@ -11,19 +11,20 @@ import os
 import asyncio
 import logging
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
-import importlib
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Antigravity Agents")
 
 # Импортируем агентов чтобы они зарегистрировались в router
-import src.agents.tutor  # noqa: F401
+import src.agents.tutor   # noqa: F401
+import src.agents.career  # noqa: F401
 
 from src.gateway.router import process, AGENT_LABELS
-from src.db.conversations import get_recent_messages
+from src.db.conversations import get_recent_messages, delete_message
+from src.config import AVAILABLE_MODELS, get_agent_model, set_agent_model
 
 AUDIO_DIR = "/tmp/tutor_audio"
 
@@ -87,6 +88,23 @@ HTML = """<!DOCTYPE html>
   .badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 6px;
            background: #333; color: #888; }
   .badge.telegram { background: #1a3a5a; color: #5b9bd5; }
+
+  /* Model selector */
+  #chat-header { display: flex; align-items: center; justify-content: space-between; }
+  #model-select { background: #222; border: 1px solid #333; color: #aaa;
+                  padding: 4px 8px; border-radius: 6px; font-size: 12px; outline: none; }
+  #model-select:focus { border-color: #6b8cff; }
+
+  /* Delete button */
+  .msg-wrap { position: relative; display: flex; }
+  .msg-wrap.user { justify-content: flex-end; }
+  .msg-wrap.assistant { justify-content: flex-start; }
+  .msg { position: relative; }
+  .del-btn { display: none; position: absolute; top: 4px; right: 6px;
+             background: none; border: none; color: #666; cursor: pointer;
+             font-size: 14px; line-height: 1; padding: 0 2px; }
+  .msg:hover .del-btn { display: block; }
+  .del-btn:hover { color: #e05555; }
 </style>
 </head>
 <body>
@@ -97,7 +115,11 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <div id="chat-area">
-  <div id="chat-header">Выберите агента</div>
+  <div id="chat-header">
+    <span id="header-title">Выберите агента</span>
+    <select id="model-select" style="display:none" onchange="saveModel(this.value)">
+    </select>
+  </div>
   <div id="messages"></div>
   <div id="input-area">
     <textarea id="msg-input" placeholder="Напишите сообщение..." rows="1"
@@ -110,6 +132,10 @@ HTML = """<!DOCTYPE html>
 const AGENTS = AGENTS_JSON;
 let currentAgent = null;
 let ws = null;
+let availableModels = {};
+
+// Загрузить модели
+ fetch('/api/models').then(r => r.json()).then(m => { availableModels = m; });
 
 // Строим sidebar
 const list = document.getElementById('agent-list');
@@ -129,14 +155,24 @@ function selectAgent(key, label, btn) {
   // UI
   document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('chat-header').textContent = label;
+  document.getElementById('header-title').textContent = label;
   document.getElementById('messages').innerHTML = '';
+
+  // Выбор модели
+  const sel = document.getElementById('model-select');
+  sel.innerHTML = '';
+  Object.entries(availableModels).forEach(([val, name]) => {
+    const opt = document.createElement('option');
+    opt.value = val; opt.textContent = name; sel.appendChild(opt);
+  });
+  sel.style.display = Object.keys(availableModels).length ? 'inline-block' : 'none';
+  fetch(`/api/settings/${key}`).then(r => r.json()).then(s => { sel.value = s.model; });
 
   // Загрузить историю
   fetch(`/api/history/${key}`)
     .then(r => r.json())
     .then(msgs => {
-      msgs.forEach(m => appendMessage(m.role, m.content, m.audio_path, m.source, false));
+      msgs.forEach(m => appendMessage(m.role, m.content, m.audio_path, m.source, false, m.id));
       scrollBottom();
     });
 
@@ -148,15 +184,34 @@ function selectAgent(key, label, btn) {
     const data = JSON.parse(e.data);
     removeTyping();
     if (data.type === 'message') {
-      appendMessage('assistant', data.text, data.audio_path, 'web', true);
+      appendMessage('assistant', data.text, data.audio_path, 'web', true, data.id);
       scrollBottom();
       document.getElementById('send-btn').disabled = false;
     }
   };
 }
 
-function appendMessage(role, content, audioPath, source, animate) {
+function saveModel(model) {
+  if (!currentAgent) return;
+  fetch(`/api/settings/${currentAgent}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({model})
+  });
+}
+
+function deleteMessage(id, wrapEl) {
+  if (!id) return;
+  fetch(`/api/message/${id}`, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(d => { if (d.ok) wrapEl.remove(); });
+}
+
+function appendMessage(role, content, audioPath, source, animate, msgId) {
   const msgs = document.getElementById('messages');
+  const wrap = document.createElement('div');
+  wrap.className = `msg-wrap ${role}`;
+
   const div = document.createElement('div');
   div.className = `msg ${role}`;
 
@@ -173,7 +228,15 @@ function appendMessage(role, content, audioPath, source, animate) {
     div.appendChild(audio);
   }
 
-  msgs.appendChild(div);
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-btn';
+  delBtn.title = 'Удалить';
+  delBtn.textContent = '×';
+  delBtn.onclick = () => deleteMessage(msgId, wrap);
+
+  div.appendChild(delBtn);
+  wrap.appendChild(div);
+  msgs.appendChild(wrap);
 }
 
 function removeTyping() {
@@ -245,6 +308,34 @@ async def get_audio(filename: str):
 @app.get("/api/history/{agent}")
 async def history(agent: str):
     return get_recent_messages(agent, limit=50)
+
+
+@app.delete("/api/message/{message_id}")
+async def remove_message(message_id: int):
+    ok = delete_message(message_id)
+    if not ok:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"ok": True}
+
+
+@app.get("/api/models")
+async def models():
+    return AVAILABLE_MODELS
+
+
+@app.get("/api/settings/{agent}")
+async def get_settings(agent: str):
+    return {"model": get_agent_model(agent)}
+
+
+@app.put("/api/settings/{agent}")
+async def save_settings(agent: str, request: Request):
+    body = await request.json()
+    model = body.get("model", "")
+    if model not in AVAILABLE_MODELS:
+        return JSONResponse({"error": "unknown model"}, status_code=400)
+    set_agent_model(agent, model)
+    return {"ok": True, "model": model}
 
 
 # ─── WebSocket ───────────────────────────────────────────────────────────────

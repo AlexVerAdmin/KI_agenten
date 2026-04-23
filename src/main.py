@@ -7,8 +7,18 @@ import asyncio
 import logging
 import os
 import threading
+from pathlib import Path
 
 import uvicorn
+
+# Загружаем .env из корня проекта
+_env_file = Path(__file__).parents[1] / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 from src.db.conversations import init_db
 from src.gateway.web import app as web_app
@@ -74,6 +84,13 @@ def main():
         asyncio.run(run_telegram())
     except KeyboardInterrupt:
         logger.info("Shutdown")
+
+    # Если Telegram не запущен — держим процесс живым пока работает Web
+    if web_thread.is_alive():
+        try:
+            web_thread.join()
+        except KeyboardInterrupt:
+            logger.info("Shutdown")
 
 
 if __name__ == "__main__":

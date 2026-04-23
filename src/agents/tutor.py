@@ -2,24 +2,25 @@
 Агент: Учитель немецкого (Max Klein).
 Регистрируется в router через @register("tutor").
 Принимает текст или голосовой файл → возвращает текст + путь к аудио.
+Модель выбирается динамически: Gemini cloud или локальная (llama-cpp OpenAI API).
 """
 
 import os
 import uuid
 import logging
-from google import genai
-from google.genai import types
 import edge_tts
+from openai import AsyncOpenAI
 
 from src.gateway.router import register
 from src.db.conversations import get_history_text
+from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_agent_model
 
 logger = logging.getLogger(__name__)
 
 TTS_VOICE = "de-DE-ConradNeural"
 TTS_SPEED = "+0%"
-GEMINI_MODEL = "gemini-2.5-pro"
 AUDIO_DIR = "/tmp/tutor_audio"
+AGENT_NAME = "tutor"
 
 SYSTEM_PROMPT = (
     "Du bist Max Klein, ein freundlicher und geduldiger Deutschlehrer. "
@@ -30,48 +31,55 @@ SYSTEM_PROMPT = (
 )
 
 
+def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
+    """Возвращает (AsyncOpenAI client, model_name) в зависимости от выбранной модели."""
+    if model == "local":
+        client = AsyncOpenAI(base_url=LOCAL_MODEL_URL, api_key="local")
+        return client, LOCAL_MODEL_NAME
+    else:
+        # Gemini через OpenAI-совместимый endpoint
+        client = AsyncOpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=GEMINI_API_KEY,
+        )
+        return client, model
+
+
 @register("tutor")
 async def process(user_input: str, voice_path: str = None) -> dict:
     """
     Обрабатывает запрос к учителю немецкого.
-    voice_path: путь к .ogg файлу если голосовое сообщение.
     Возвращает {"text": str, "audio_path": str}.
     """
     os.makedirs(AUDIO_DIR, exist_ok=True)
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
+    model_key = get_agent_model(AGENT_NAME)
+    client, model_name = _make_client(model_key)
 
-    # История из БД (последние 20 сообщений)
-    history = get_history_text("tutor", limit=20)
+    history = get_history_text(AGENT_NAME, limit=20)
 
-    # Собираем contents для Gemini
-    contents = []
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.append({"role": "system", "content": f"История урока:\n{history}"})
 
     if voice_path and os.path.exists(voice_path):
-        # Голосовой ввод: загружаем файл в Gemini Files API
-        file_upload = client.files.upload(path=voice_path)
-        contents.append(types.Part.from_uri(file_upload.uri, mime_type="audio/ogg"))
-        prompt = (
-            f"System: {SYSTEM_PROMPT}\n\n"
-            f"История урока:\n{history}\n\n"
-            "Schüler hat eine Sprachnachricht gesendet (siehe Audio oben). "
-            "Transkribiere es kurz und antworte als Max Klein:"
-        )
+        # Локальные модели не поддерживают аудио — транскрибируем текстово
+        messages.append({
+            "role": "user",
+            "content": "[Schüler hat eine Sprachnachricht gesendet — bitte antworte als Max Klein]"
+        })
     else:
-        prompt = (
-            f"System: {SYSTEM_PROMPT}\n\n"
-            f"История урока:\n{history}\n\n"
-            f"Schüler: {user_input}\n"
-            "Max Klein:"
-        )
+        messages.append({"role": "user", "content": user_input})
 
-    contents.append(prompt)
+    response = await client.chat.completions.create(
+        model=model_name,
+        messages=messages,
+        max_tokens=512,
+        temperature=0.7,
+    )
+    ai_reply = response.choices[0].message.content.strip()
 
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=contents)
-    ai_reply = response.text.strip()
-
-    # Генерируем голосовой ответ
+    # TTS
     audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
     communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
     await communicate.save(audio_path)

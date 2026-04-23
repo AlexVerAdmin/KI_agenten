@@ -96,3 +96,10 @@ def get_recent_messages(agent: str, limit: int = 50) -> list[dict]:
             (agent, limit),
         ).fetchall()
     return [dict(r) for r in reversed(rows)]
+
+
+def delete_message(message_id: int) -> bool:
+    """Удаляет сообщение по id. Возвращает True если удалено."""
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+        return cur.rowcount > 0
