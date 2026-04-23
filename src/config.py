@@ -9,7 +9,7 @@ import os
 
 # Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL_DEFAULT = os.environ.get("DEFAULT_AGENT_MODEL", "gemini-2.5-pro")
+GEMINI_MODEL_DEFAULT = os.environ.get("DEFAULT_AGENT_MODEL", "gemini-2.5-flash")
 
 # Локальная модель (llama-cpp, OpenAI-совместимый API)
 LOCAL_MODEL_URL = os.environ.get("LOCAL_MODEL_URL", "http://127.0.0.1:8000/v1")
@@ -17,8 +17,8 @@ LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "gemma-4")
 
 # Список доступных моделей для UI
 AVAILABLE_MODELS = {
-    "gemini-2.5-pro":   "Gemini 2.5 Pro (cloud)",
-    "gemini-2.0-flash": "Gemini 2.0 Flash (cloud, fast)",
+    "gemini-2.5-flash": "Gemini 2.5 Flash (fast, stable)",
+    "gemini-2.5-pro":   "Gemini 2.5 Pro (smart, slow)",
     "local":            f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
 }
 

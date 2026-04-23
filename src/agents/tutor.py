@@ -96,8 +96,25 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True) -> 
         temperature=0.7,
     )
     ai_reply = (response.choices[0].message.content or "").strip()
+
+    # Gemini 2.5 Pro иногда возвращает пустой content (thinking mode).
+    # Fallback на gemini-2.5-flash.
+    if not ai_reply and model_name != "gemini-2.5-flash":
+        logger.warning(f"Empty content from {model_name}, retrying with gemini-2.5-flash")
+        fallback_client = AsyncOpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=GEMINI_API_KEY,
+        )
+        response = await fallback_client.chat.completions.create(
+            model="gemini-2.5-flash",
+            messages=messages,
+            max_tokens=512,
+            temperature=0.7,
+        )
+        ai_reply = (response.choices[0].message.content or "").strip()
+
     if not ai_reply:
-        ai_reply = "(Модель вернула пустой ответ. Попробуйте ещё раз.)"
+        ai_reply = "(Keine Antwort vom Modell. Bitte nochmals versuchen.)"
 
     # Каждые SUMMARY_EVERY сообщений пользователя — запрашиваем краткий итог у модели
     history_count = len(get_history(AGENT_NAME, limit=500))
