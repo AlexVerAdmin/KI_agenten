@@ -7,6 +7,7 @@
 
 import os
 import uuid
+import json
 import logging
 import edge_tts
 from openai import AsyncOpenAI
@@ -14,7 +15,7 @@ from openai import AsyncOpenAI
 from src.gateway.router import register
 from src.db.conversations import get_history_text, get_history
 from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_effective_settings
-from src.utils.obsidian import read_obsidian, append_dated_note
+from src.utils.obsidian import read_obsidian, append_dated_note, write_obsidian
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,64 @@ VOCABULARY_PATH = "01_Projects/Agents/tutor/vocabulary.md"
 
 # Записывать итог урока каждые N сообщений пользователя
 SUMMARY_EVERY = 10
+
+# Описание инструментов — добавляется к system_prompt автоматически
+_TOOLS_CONTEXT = """\
+## Deine Werkzeuge (nutze sie selbst, bitte den Schüler NICHT, etwas aufzuschreiben):
+- add_to_vocabulary(word, translation, example) — neues Wort zum Vokabular des Schülers hinzufügen
+- update_progress(note) — Fortschrittsnotiz, Thema oder Fehler des Schülers aufschreiben
+
+Wenn du ein neues Wort erklärst oder der Schüler danach fragt — rufe sofort add_to_vocabulary auf.
+Sag NIEMALS "schreib das auf" oder "füge es zum Wörterbuch hinzu" — tue es selbst."""
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_vocabulary",
+            "description": "Fügt ein Wort oder eine Phrase zum Vokabular des Schülers in Obsidian hinzu.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "word":        {"type": "string", "description": "Das deutsche Wort oder die Phrase"},
+                    "translation": {"type": "string", "description": "Übersetzung ins Russische oder Ukrainische"},
+                    "example":     {"type": "string", "description": "Beispielsatz (optional)"},
+                },
+                "required": ["word", "translation"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_progress",
+            "description": "Schreibt eine Fortschrittsnotiz über die Unterrichtsstunde in Obsidian.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": "Notiz über Fortschritt, Thema oder Fehler"},
+                },
+                "required": ["note"],
+            },
+        },
+    },
+]
+
+
+def _tool_add_vocabulary(word: str, translation: str, example: str = "") -> str:
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y-%m-%d")
+    line = f"- **{word}** — {translation}"
+    if example:
+        line += f" | _Bsp.:_ {example}"
+    line += f" _{ts}_"
+    ok = write_obsidian(VOCABULARY_PATH, line + "\n", append=True)
+    return f"✅ Wort gespeichert: {word}" if ok else "⚠️ Fehler beim Speichern"
+
+
+def _tool_update_progress(note: str) -> str:
+    ok = append_dated_note(PROGRESS_PATH, note)
+    return "✅ Fortschritt gespeichert" if ok else "⚠️ Fehler beim Speichern"
 
 
 def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
@@ -72,7 +131,7 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
     progress   = read_obsidian(PROGRESS_PATH)
     vocabulary = read_obsidian(VOCABULARY_PATH)
 
-    context_parts = [system_prompt]
+    context_parts = [system_prompt + "\n\n" + _TOOLS_CONTEXT]
     if progress:
         context_parts.append(f"## Прогресс ученика:\n{progress}")
     if vocabulary:
@@ -83,26 +142,53 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
         messages.append({"role": "system", "content": f"История урока:\n{history}"})
 
     if voice_path and os.path.exists(voice_path):
-        # Локальные модели не поддерживают аудио — транскрибируем текстово
         messages.append({
             "role": "user",
-            "content": "[Schüler hat eine Sprachnachricht gesendet — bitte antworte als Max Klein]"
+            "content": "[Schüler hat eine Sprachnachricht gesendet — bitte antworte als Lehrer]"
         })
     else:
         messages.append({"role": "user", "content": user_input})
 
-    response = await client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
-    ai_reply = (response.choices[0].message.content or "").strip()
+    # Агентный цикл: модель может вызывать инструменты
+    ai_reply = ""
+    for _ in range(5):
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        msg = response.choices[0].message
 
-    # Gemini 2.5 Pro иногда возвращает пустой content (thinking mode).
-    # Fallback на gemini-2.5-flash.
+        if not msg.tool_calls:
+            ai_reply = (msg.content or "").strip()
+            break
+
+        # Обрабатываем tool calls
+        messages.append({"role": "assistant", "content": msg.content, "tool_calls": [
+            {"id": tc.id, "type": "function",
+             "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in msg.tool_calls
+        ]})
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments)
+            except Exception:
+                args = {}
+            if tc.function.name == "add_to_vocabulary":
+                result = _tool_add_vocabulary(**args)
+            elif tc.function.name == "update_progress":
+                result = _tool_update_progress(**args)
+            else:
+                result = f"Unknown tool: {tc.function.name}"
+            logger.info(f"Tool {tc.function.name}: {result}")
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+    # Fallback: пустой ответ (Gemini thinking mode) — retry без tools
     if not ai_reply and model_name != "gemini-2.5-flash":
-        logger.warning(f"Empty content from {model_name}, retrying with gemini-2.5-flash")
+        logger.warning(f"Empty content from {model_name}, retrying without tools")
         fallback_client = AsyncOpenAI(
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             api_key=GEMINI_API_KEY,
