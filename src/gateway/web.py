@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Antigravity Agents")
 
 # Импортируем агентов чтобы они зарегистрировались в router
-import src.agents.tutor   # noqa: F401
-import src.agents.career  # noqa: F401
+import src.agents.tutor    # noqa: F401
+import src.agents.career   # noqa: F401
+import src.agents.copilot  # noqa: F401
 
 from src.gateway.router import process, AGENT_LABELS
 from src.db.conversations import get_recent_messages, delete_message

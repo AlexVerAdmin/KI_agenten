@@ -29,6 +29,7 @@ AGENT_LABELS = {
     "secretary": "📋 Личный секретарь",
     "ct2001":    "🖥️ Агент HomeLab",
     "vds":       "☁️ Агент VDS",
+    "copilot":   "🧠 Copilot (Архитектор)",
 }
 
 
