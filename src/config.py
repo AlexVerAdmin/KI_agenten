@@ -25,6 +25,14 @@ AVAILABLE_MODELS = {
     "local":                     f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
 }
 
+# Список TTS-моделей для UI
+TTS_MODELS = {
+    "gemini-3.1-flash-tts-preview": "Gemini TTS 3.1 Flash (new)",
+    "gemini-2.5-flash-preview-tts": "Gemini TTS 2.5 Flash",
+    "gemini-2.5-pro-preview-tts":   "Gemini TTS 2.5 Pro",
+    "edge-tts":                     "Edge TTS (fallback, offline)",
+}
+
 # ─── Пути ──────────────────────────────────────────────────────────────────
 
 OBSIDIAN_VAULT = os.environ.get("OBSIDIAN_VAULT_PATH", "/home/alex/Obsidian")

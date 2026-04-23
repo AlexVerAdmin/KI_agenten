@@ -25,7 +25,7 @@ import src.agents.copilot  # noqa: F401
 
 from src.gateway.router import process, AGENT_LABELS
 from src.db.conversations import get_recent_messages, delete_message
-from src.config import AVAILABLE_MODELS, get_agent_model, set_agent_model
+from src.config import AVAILABLE_MODELS, TTS_MODELS, get_agent_model, set_agent_model
 
 AUDIO_DIR = "/tmp/tutor_audio"
 
@@ -95,6 +95,10 @@ HTML = """<!DOCTYPE html>
   #model-select { background: #222; border: 1px solid #333; color: #aaa;
                   padding: 4px 8px; border-radius: 6px; font-size: 12px; outline: none; }
   #model-select:focus { border-color: #6b8cff; }
+  #tts-model-select { background: #222; border: 1px solid #333; color: #aaa;
+                      padding: 4px 8px; border-radius: 6px; font-size: 12px; outline: none;
+                      display: none; }
+  #tts-model-select:focus { border-color: #6b8cff; }
 
   /* Voice toggle */
   #voice-toggle { background: #222; border: 1px solid #333; color: #aaa;
@@ -143,6 +147,7 @@ HTML = """<!DOCTYPE html>
     <span id="header-title">Выберите агента</span>
     <div id="header-right">
       <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">&#x1F507;</button>
+      <select id="tts-model-select" onchange="saveTtsModel(this.value)" title="TTS модель"></select>
       <button id="dialog-toggle" class="off" onclick="toggleDialog()" title="Авто-диалог: после ответа агента микрофон включается автоматически">&#x1F504;</button>
       <select id="model-select" style="display:none" onchange="saveModel(this.value)">
       </select>
@@ -171,6 +176,23 @@ let ws = null;
 let availableModels = {};
 let voiceMode = false;   // TTS + автоплей
 let dialogMode = false;  // авто-диалог: после ответа mic включается сам
+let availableTtsModels = {};
+let selectedTtsModel = 'gemini-3.1-flash-tts-preview';
+
+// Загрузить TTS-модели
+fetch('/api/tts-models').then(r => r.json()).then(m => {
+  availableTtsModels = m;
+  const sel = document.getElementById('tts-model-select');
+  Object.entries(m).forEach(([val, name]) => {
+    const opt = document.createElement('option');
+    opt.value = val; opt.textContent = name; sel.appendChild(opt);
+  });
+  sel.value = selectedTtsModel;
+});
+
+function saveTtsModel(val) {
+  selectedTtsModel = val;
+}
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
@@ -241,6 +263,7 @@ function toggleVoice() {
   btn.textContent = voiceMode ? '\U0001F50A' : '\U0001F507';
   btn.className = voiceMode ? 'on' : 'off';
   btn.title = voiceMode ? 'Отключить звук' : 'Включить звук';
+  document.getElementById('tts-model-select').style.display = voiceMode ? 'inline-block' : 'none';
   if (!voiceMode && dialogMode) toggleDialog();
 }
 
@@ -380,7 +403,7 @@ function sendMessage() {
 
   appendMessage('user', text, null, 'web', false);
   scrollBottom();
-  ws.send(JSON.stringify({text, tts: voiceMode}));
+  ws.send(JSON.stringify({text, tts: voiceMode, tts_model: selectedTtsModel}));
   input.value = '';
   input.style.height = 'auto';
   document.getElementById('send-btn').disabled = true;
@@ -439,6 +462,11 @@ async def remove_message(message_id: int):
     return {"ok": True}
 
 
+@app.get("/api/tts-models")
+async def tts_models():
+    return TTS_MODELS
+
+
 @app.get("/api/models")
 async def models():
     return AVAILABLE_MODELS
@@ -469,9 +497,10 @@ async def websocket_endpoint(websocket: WebSocket, agent: str):
             data = await websocket.receive_json()
             text = data.get("text", "").strip()
             tts = bool(data.get("tts", False))
+            tts_model = data.get("tts_model", "gemini-3.1-flash-tts-preview")
             if not text:
                 continue
-            result = await process(agent=agent, user_input=text, source="web", tts=tts)
+            result = await process(agent=agent, user_input=text, source="web", tts=tts, tts_model=tts_model)
             await websocket.send_json({
                 "type": "message",
                 "text": result["text"],

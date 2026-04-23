@@ -53,7 +53,7 @@ def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
 
 
 @register("tutor")
-async def process(user_input: str, voice_path: str = None, tts: bool = True) -> dict:
+async def process(user_input: str, voice_path: str = None, tts: bool = True, tts_model: str = "gemini-3.1-flash-tts-preview") -> dict:
     """
     Обрабатывает запрос к учителю немецкого.
     tts=False — не генерировать аудио.
@@ -138,25 +138,28 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True) -> 
     audio_path = None
     if tts:
         audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-        ok = await _gemini_tts(ai_reply, audio_path)
-        if not ok:
-            # Fallback: edge-tts
-            logger.warning("Gemini TTS failed, falling back to edge-tts")
+        if tts_model == "edge-tts":
             communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
             await communicate.save(audio_path)
+        else:
+            ok = await _gemini_tts(ai_reply, audio_path, model=tts_model)
+            if not ok:
+                logger.warning(f"Gemini TTS ({tts_model}) failed, falling back to edge-tts")
+                communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
+                await communicate.save(audio_path)
 
     return {"text": ai_reply, "audio_path": audio_path}
 
 
-async def _gemini_tts(text: str, audio_path: str) -> bool:
-    """Генерирует аудио через Gemini TTS 3.1 Flash. Возвращает True при успехе."""
+async def _gemini_tts(text: str, audio_path: str, model: str = "gemini-3.1-flash-tts-preview") -> bool:
+    """Генерирует аудио через Gemini TTS. Возвращает True при успехе."""
     import httpx
     import base64
     import subprocess
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-3.1-flash-tts-preview:generateContent?key={GEMINI_API_KEY}"
+        f"{model}:generateContent?key={GEMINI_API_KEY}"
     )
     payload = {
         "contents": [{"role": "user", "parts": [{"text": text}]}],
