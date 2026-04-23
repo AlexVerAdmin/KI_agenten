@@ -61,7 +61,7 @@ async def process(
 
     # Сохраняем сообщение пользователя
     display_input = user_input or "[Голосовое сообщение]"
-    save_message(agent=agent, role="user", content=display_input, source=source)
+    user_msg_id = save_message(agent=agent, role="user", content=display_input, source=source)
 
     # Вызываем агента
     try:
@@ -80,6 +80,7 @@ async def process(
         "text": text,
         "audio_path": audio_path,
         "id": msg_id,
+        "user_msg_id": user_msg_id,
         "agent": agent,
         "agent_label": AGENT_LABELS.get(agent, agent),
     }

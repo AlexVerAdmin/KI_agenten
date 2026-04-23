@@ -729,6 +729,15 @@ function selectAgent(key, label, btn) {
     const data = JSON.parse(e.data);
     removeTyping();
     if (data.type === 'message') {
+      // Назначаем id последнему user-сообщению (оно было добавлено без id)
+      if (data.user_msg_id) {
+        const userBubbles = document.querySelectorAll('.msg-wrap.user');
+        const lastUser = userBubbles[userBubbles.length - 1];
+        if (lastUser) {
+          const btn = lastUser.querySelector('.del-btn');
+          if (btn) btn.onclick = () => deleteMessage(data.user_msg_id, lastUser);
+        }
+      }
       appendMessage('assistant', data.text, data.audio_path, 'web', voiceMode, data.id);
       scrollBottom();
       document.getElementById('send-btn').disabled = false;
@@ -949,6 +958,7 @@ async def websocket_endpoint(websocket: WebSocket, agent: str):
                 "text": result["text"],
                 "audio_path": result.get("audio_path"),
                 "id": result.get("id"),
+                "user_msg_id": result.get("user_msg_id"),
             })
     except WebSocketDisconnect:
         pass
