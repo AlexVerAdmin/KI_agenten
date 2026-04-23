@@ -127,7 +127,7 @@ HTML = """<!DOCTYPE html>
   <div id="chat-header">
     <span id="header-title">Выберите агента</span>
     <div id="header-right">
-      <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">🔇</button>
+      <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">&#x1F507;</button>
       <select id="model-select" style="display:none" onchange="saveModel(this.value)">
       </select>
     </div>
@@ -150,7 +150,7 @@ let voiceMode = false;  // голосовой режим (автоплей + TTS
 function toggleVoice() {
   voiceMode = !voiceMode;
   const btn = document.getElementById('voice-toggle');
-  btn.textContent = voiceMode ? '\ud83d\udd0a' : '\ud83d\udd07';
+  btn.textContent = voiceMode ? '\U0001F50A' : '\U0001F507';
   btn.className = voiceMode ? 'on' : 'off';
   btn.title = voiceMode ? 'Отключить звук' : 'Включить звук';
 }
