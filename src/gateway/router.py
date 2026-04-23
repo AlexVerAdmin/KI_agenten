@@ -74,11 +74,12 @@ async def process(
     audio_path = result.get("audio_path")
 
     # Сохраняем ответ агента
-    save_message(agent=agent, role="assistant", content=text, source=source, audio_path=audio_path)
+    msg_id = save_message(agent=agent, role="assistant", content=text, source=source, audio_path=audio_path)
 
     return {
         "text": text,
         "audio_path": audio_path,
+        "id": msg_id,
         "agent": agent,
         "agent_label": AGENT_LABELS.get(agent, agent),
     }

@@ -948,6 +948,7 @@ async def websocket_endpoint(websocket: WebSocket, agent: str):
                 "type": "message",
                 "text": result["text"],
                 "audio_path": result.get("audio_path"),
+                "id": result.get("id"),
             })
     except WebSocketDisconnect:
         pass
