@@ -206,7 +206,16 @@ async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
 
         # Если нет вызовов инструментов — финальный ответ
         if not msg.tool_calls:
-            return {"text": msg.content or "", "audio_path": None}
+            text = (msg.content or "").strip()
+            if not text:
+                # Gemini иногда возвращает None content при work с tools — retry без tools
+                retry = await client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.5,
+                )
+                text = (retry.choices[0].message.content or "").strip()
+            return {"text": text, "audio_path": None}
 
         # Добавляем ответ модели с tool_calls в историю
         messages.append({"role": "assistant", "content": msg.content, "tool_calls": [

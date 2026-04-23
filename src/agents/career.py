@@ -56,8 +56,9 @@ async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
     response = await client.chat.completions.create(
         model=model_name,
         messages=messages,
+        max_tokens=8192,
         temperature=0.7,
     )
 
-    text = response.choices[0].message.content.strip()
+    text = (response.choices[0].message.content or "").strip()
     return {"text": text, "audio_path": None}
