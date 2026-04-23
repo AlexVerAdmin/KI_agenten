@@ -22,7 +22,7 @@ from src.gateway.router import register
 from src.db.conversations import get_history
 from src.config import (
     GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME,
-    OBSIDIAN_VAULT, get_agent_model,
+    OBSIDIAN_VAULT, get_effective_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,13 +181,19 @@ def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
 
 
 @register("copilot")
-async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
-    model_key = get_agent_model(AGENT_NAME)
+async def process(user_input: str, voice_path: str = None, user_id: str = "alex", **kwargs) -> dict:
+    cfg = get_effective_settings(AGENT_NAME, user_id)
+    model_key   = cfg["model"]
+    temperature = float(cfg.get("temperature", 0.5))
+    # Системный промпт: из настроек, но всегда дополняем codebase index
+    base_prompt = cfg.get("system_prompt", "")
+    effective_prompt = base_prompt + f"\n\n## Codebase Index\n{_CODEBASE_INDEX}"
+
     client, model_name = _make_client(model_key)
 
     # Строим историю
     history = get_history(AGENT_NAME, limit=20)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": effective_prompt}]
     for msg in history:
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_input})
@@ -199,7 +205,7 @@ async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
             messages=messages,
             tools=TOOLS,
             tool_choice="auto",
-            temperature=0.5,
+            temperature=temperature,
         )
 
         msg = response.choices[0].message
@@ -212,7 +218,7 @@ async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
                 retry = await client.chat.completions.create(
                     model=model_name,
                     messages=messages,
-                    temperature=0.5,
+                    temperature=temperature,
                 )
                 text = (retry.choices[0].message.content or "").strip()
             return {"text": text, "audio_path": None}

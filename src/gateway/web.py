@@ -25,9 +25,262 @@ import src.agents.copilot  # noqa: F401
 
 from src.gateway.router import process, AGENT_LABELS
 from src.db.conversations import get_recent_messages, delete_message
-from src.config import AVAILABLE_MODELS, TTS_MODELS, get_agent_model, set_agent_model
+from src.config import (
+    AVAILABLE_MODELS, TTS_MODELS, AGENT_DEFAULTS, UI_LANGUAGES,
+    get_effective_settings, save_global_settings, save_user_setting, reset_user_setting,
+    get_agent_model, set_agent_model,
+)
 
 AUDIO_DIR = "/tmp/tutor_audio"
+
+
+# ─── Страница настроек /settings ────────────────────────────────────────────
+
+SETTINGS_HTML = """<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Налаштування агентів</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f0f0f; color: #e0e0e0; padding: 24px; max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; color: #fff; margin-bottom: 6px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 28px; }
+  .subtitle a { color: #6b8cff; text-decoration: none; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid #2a2a2a;
+          padding-bottom: 0; flex-wrap: wrap; }
+  .tab-btn { padding: 8px 18px; border: none; background: none; color: #888; cursor: pointer;
+             font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+             transition: color 0.15s; }
+  .tab-btn:hover { color: #ccc; }
+  .tab-btn.active { color: #fff; border-bottom-color: #6b8cff; }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  .section { margin-bottom: 24px; }
+  .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+                   color: #666; margin-bottom: 12px; }
+
+  .field { margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #aaa; margin-bottom: 5px; }
+  .field-row { display: flex; gap: 8px; align-items: flex-start; }
+  input[type=text], input[type=number], select, textarea {
+    background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
+    padding: 8px 12px; border-radius: 6px; font-size: 14px; outline: none;
+    width: 100%; font-family: inherit; }
+  input:focus, select:focus, textarea:focus { border-color: #6b8cff; }
+  textarea { resize: vertical; min-height: 120px; line-height: 1.5; }
+  input[type=number] { max-width: 120px; }
+  select { max-width: 320px; }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 600px) { .row-2 { grid-template-columns: 1fr; } }
+
+  .reset-btn { padding: 7px 10px; background: none; border: 1px solid #444; color: #888;
+               border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap;
+               transition: all 0.15s; flex-shrink: 0; }
+  .reset-btn:hover { border-color: #e05555; color: #e05555; }
+
+  .save-btn { padding: 10px 24px; background: #4a6adf; color: #fff; border: none;
+              border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
+              transition: background 0.15s; }
+  .save-btn:hover { background: #5a7aef; }
+  .save-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+  .info { font-size: 12px; color: #555; margin-top: 4px; }
+  .badge-global { font-size: 10px; background: #1a3a2a; color: #5aba8a;
+                  padding: 1px 7px; border-radius: 8px; margin-left: 6px; }
+  .badge-user   { font-size: 10px; background: #3a2a1a; color: #dfaa5a;
+                  padding: 1px 7px; border-radius: 8px; margin-left: 6px; }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #1e3a1e;
+           border: 1px solid #3a7a3a; color: #7ada7a; padding: 10px 18px;
+           border-radius: 8px; font-size: 14px; opacity: 0;
+           transition: opacity 0.3s; pointer-events: none; z-index: 999; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #3a1e1e; border-color: #7a3a3a; color: #da7a7a; }
+</style>
+</head>
+<body>
+<h1>⚙️ Налаштування агентів</h1>
+<p class="subtitle">
+  Глобальні налаштування (для всіх користувачів). Per-user overrides зберігаються окремо.<br>
+  <a href="/">← Повернутись до чату</a>
+</p>
+
+<div class="tabs" id="tabs"></div>
+<div id="panes"></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const AGENTS_INFO = {
+  tutor:   { label: "Lehrer (Вчитель)", hasTts: true },
+  career:  { label: "Career Coach",     hasTts: false },
+  copilot: { label: "Copilot",          hasTts: false },
+};
+
+let models = {};
+let ttsModels = {};
+let uiLangs = {};
+let agentSettings = {};  // agent → current effective settings
+
+async function init() {
+  [models, ttsModels, uiLangs] = await Promise.all([
+    fetch('/api/models').then(r => r.json()),
+    fetch('/api/tts-models').then(r => r.json()),
+    fetch('/api/ui-languages').then(r => r.json()),
+  ]);
+
+  const tabs  = document.getElementById('tabs');
+  const panes = document.getElementById('panes');
+
+  for (const [agent, info] of Object.entries(AGENTS_INFO)) {
+    const settings = await fetch(`/api/settings/${agent}`).then(r => r.json());
+    agentSettings[agent] = settings;
+
+    // Tab
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.textContent = info.label;
+    btn.dataset.agent = agent;
+    btn.onclick = () => switchTab(agent);
+    tabs.appendChild(btn);
+
+    // Pane
+    const pane = document.createElement('div');
+    pane.className = 'tab-pane';
+    pane.id = `pane-${agent}`;
+    pane.innerHTML = buildPane(agent, info, settings);
+    panes.appendChild(pane);
+  }
+
+  switchTab('tutor');
+}
+
+function buildPane(agent, info, s) {
+  const modelOpts = Object.entries(models).map(([v, n]) =>
+    `<option value="${v}" ${v === s.model ? 'selected' : ''}>${n}</option>`
+  ).join('');
+
+  const ttsVoices = ['Fenrir', 'Aoede', 'Charon', 'Kore', 'Puck', 'Leda', 'Orus', 'Schedar'];
+  const ttsVoiceOpts = ttsVoices.map(v =>
+    `<option value="${v}" ${v === (s.tts_voice || 'Fenrir') ? 'selected' : ''}>${v}</option>`
+  ).join('');
+
+  const ttsLangs = {'de-DE':'🇩🇪 Deutsch','uk-UA':'🇺🇦 Українська','en-US':'🇺🇸 English',
+                    'ru-RU':'🇷🇺 Русский','pt-PT':'🇵🇹 Português'};
+  const ttsLangOpts = Object.entries(ttsLangs).map(([v, n]) =>
+    `<option value="${v}" ${v === (s.tts_lang || 'de-DE') ? 'selected' : ''}>${n}</option>`
+  ).join('');
+
+  const uiLangOpts = Object.entries(uiLangs).map(([v, n]) =>
+    `<option value="${v}" ${v === (s.ui_lang || 'uk') ? 'selected' : ''}>${n}</option>`
+  ).join('');
+
+  const ttsSection = info.hasTts ? `
+    <div class="section">
+      <div class="section-title">TTS (синтез мовлення)</div>
+      <div class="row-2">
+        <div class="field">
+          <label>Голос <span class="badge-global">global</span></label>
+          <select id="${agent}-tts_voice">${ttsVoiceOpts}</select>
+        </div>
+        <div class="field">
+          <label>Мова озвучування <span class="badge-global">global</span></label>
+          <select id="${agent}-tts_lang">${ttsLangOpts}</select>
+        </div>
+      </div>
+    </div>` : '';
+
+  return `
+    <div class="section">
+      <div class="section-title">Модель та параметри</div>
+      <div class="row-2">
+        <div class="field">
+          <label>Модель <span class="badge-global">global</span></label>
+          <select id="${agent}-model">${modelOpts}</select>
+        </div>
+        <div class="field">
+          <label>Мова інтерфейсу <span class="badge-global">global</span></label>
+          <select id="${agent}-ui_lang">${uiLangOpts}</select>
+        </div>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Temperature</label>
+          <input type="number" id="${agent}-temperature" value="${s.temperature ?? 0.7}"
+                 min="0" max="2" step="0.1">
+          <div class="info">0 = детерміновано, 1+ = творчо</div>
+        </div>
+        <div class="field">
+          <label>Max tokens</label>
+          <input type="number" id="${agent}-max_tokens" value="${s.max_tokens ?? 8192}"
+                 min="256" max="65536" step="256">
+        </div>
+      </div>
+    </div>
+    ${ttsSection}
+    <div class="section">
+      <div class="section-title">Системний промпт <span class="badge-global">global</span></div>
+      <div class="field">
+        <textarea id="${agent}-system_prompt" rows="8">${escHtml(s.system_prompt || '')}</textarea>
+        <div class="info">Це "особистість" агента. Кожен користувач може змінити під себе через особисті налаштування.</div>
+      </div>
+    </div>
+    <button class="save-btn" onclick="saveGlobal('${agent}')">Зберегти глобальні налаштування</button>
+    <div style="margin-top:12px; font-size:12px; color:#555;">
+      Per-user overrides зберігаються на сторінці особистих налаштувань (після входу в систему).
+    </div>
+  `;
+}
+
+function switchTab(agent) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-agent="${agent}"]`).classList.add('active');
+  document.getElementById(`pane-${agent}`).classList.add('active');
+}
+
+async function saveGlobal(agent) {
+  const fields = ['model', 'system_prompt', 'temperature', 'max_tokens', 'tts_voice', 'tts_lang', 'ui_lang'];
+  const body = {};
+  for (const f of fields) {
+    const el = document.getElementById(`${agent}-${f}`);
+    if (!el) continue;
+    body[f] = el.type === 'number' ? parseFloat(el.value) : el.value;
+  }
+  const res = await fetch(`/api/settings/${agent}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.ok) showToast('Збережено ✓');
+  else showToast('Помилка: ' + (data.error || '?'), true);
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isError ? ' error' : '');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function escHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>
+"""
 
 
 # ─── HTML страница ──────────────────────────────────────────────────────────
@@ -167,7 +420,7 @@ HTML = """<!DOCTYPE html>
 
 <div id="sidebar-overlay" onclick="closeSidebar()"></div>
 <div id="sidebar">
-  <h2>Агенты</h2>
+  <h2>Агенти</h2>
   <div id="agent-list"></div>
 </div>
 
@@ -175,7 +428,7 @@ HTML = """<!DOCTYPE html>
   <div id="chat-header">
     <div style="display:flex;align-items:center;gap:10px;min-width:0;">
       <button id="menu-btn" onclick="openSidebar()" title="Агенты">&#9776;</button>
-      <span id="header-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Выберите агента</span>
+      <span id="header-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Оберіть агента</span>
     </div>
     <div id="header-right">
       <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">&#x1F507;</button>
@@ -187,7 +440,7 @@ HTML = """<!DOCTYPE html>
   </div>
   <div id="messages"></div>
   <div id="input-area">
-    <textarea id="msg-input" placeholder="Напишите сообщение..." rows="1"
+    <textarea id="msg-input" placeholder="Напишіть повідомлення..." rows="1"
               onkeydown="handleKey(event)"></textarea>
     <select id="lang-select" title="Язык распознавания">
       <option value="auto">Авто</option>
@@ -197,7 +450,7 @@ HTML = """<!DOCTYPE html>
       <option value="en-US">🇺🇸 EN</option>
     </select>
     <button id="mic-btn" onclick="toggleMic()" title="Голосовой ввод">&#x1F3A4;</button>
-    <button id="send-btn" onclick="sendMessage()">Отправить</button>
+    <button id="send-btn" onclick="sendMessage()">Надіслати</button>
   </div>
 </div>
 
@@ -206,10 +459,80 @@ const AGENTS = AGENTS_JSON;
 let currentAgent = null;
 let ws = null;
 let availableModels = {};
-let voiceMode = false;   // TTS + автоплей
-let dialogMode = false;  // авто-диалог: после ответа mic включается сам
+let voiceMode = false;
+let dialogMode = false;
 let availableTtsModels = {};
 let selectedTtsModel = 'gemini-3.1-flash-tts-preview';
+
+// i18n
+const I18N = {
+  uk: {
+    agents:      "Агенти",
+    choose:      "Оберіть агента",
+    placeholder: "Напишіть повідомлення...",
+    send:        "Надіслати",
+    typing:      "Агент друкує…",
+    delete:      "Видалити",
+    voiceOn:     "Вимкнути звук",
+    voiceOff:    "Увімкнути звук",
+    dialogOn:    "Авто-діалог: увімкнено",
+    dialogOff:   "Авто-діалог: вимкнено",
+    lang_auto:   "Авто",
+  },
+  de: {
+    agents:      "Agenten",
+    choose:      "Agent auswählen",
+    placeholder: "Nachricht eingeben...",
+    send:        "Senden",
+    typing:      "Agent tippt…",
+    delete:      "Löschen",
+    voiceOn:     "Ton ausschalten",
+    voiceOff:    "Ton einschalten",
+    dialogOn:    "Auto-Dialog: aktiv",
+    dialogOff:   "Auto-Dialog: aus",
+    lang_auto:   "Auto",
+  },
+  en: {
+    agents:      "Agents",
+    choose:      "Select agent",
+    placeholder: "Type a message...",
+    send:        "Send",
+    typing:      "Agent is typing…",
+    delete:      "Delete",
+    voiceOn:     "Mute",
+    voiceOff:    "Unmute",
+    dialogOn:    "Auto-dialog: on",
+    dialogOff:   "Auto-dialog: off",
+    lang_auto:   "Auto",
+  },
+  pt: {
+    agents:      "Agentes",
+    choose:      "Selecione um agente",
+    placeholder: "Digite uma mensagem...",
+    send:        "Enviar",
+    typing:      "Agente digitando…",
+    delete:      "Excluir",
+    voiceOn:     "Silenciar",
+    voiceOff:    "Ativar som",
+    dialogOn:    "Diálogo auto: ativado",
+    dialogOff:   "Diálogo auto: desativado",
+    lang_auto:   "Auto",
+  },
+};
+let lang = 'uk';
+
+function t(key) { return (I18N[lang] || I18N.uk)[key] || key; }
+
+function applyLang(l) {
+  lang = l || 'uk';
+  document.getElementById('sidebar').querySelector('h2').textContent = t('agents');
+  document.getElementById('header-title').textContent = currentAgent
+    ? (AGENTS[currentAgent] || t('choose')) : t('choose');
+  document.getElementById('msg-input').placeholder = t('placeholder');
+  document.getElementById('send-btn').textContent = t('send');
+  const langOpt = document.querySelector('#lang-select option[value="auto"]');
+  if (langOpt) langOpt.textContent = t('lang_auto');
+}
 
 // Загрузить TTS-модели
 fetch('/api/tts-models').then(r => r.json()).then(m => {
@@ -309,6 +632,7 @@ function toggleDialog() {
 
 // Загрузить модели
  fetch('/api/models').then(r => r.json()).then(m => { availableModels = m; });
+applyLang('uk');  // дефолт — украинский
 
 // Строим sidebar
 const list = document.getElementById('agent-list');
@@ -349,7 +673,10 @@ function selectAgent(key, label, btn) {
     opt.value = val; opt.textContent = name; sel.appendChild(opt);
   });
   sel.style.display = Object.keys(availableModels).length ? 'inline-block' : 'none';
-  fetch(`/api/settings/${key}`).then(r => r.json()).then(s => { sel.value = s.model; });
+  fetch(`/api/settings/${key}`).then(r => r.json()).then(s => {
+    sel.value = s.model;
+    if (s.ui_lang) applyLang(s.ui_lang);
+  });
 
   // Загрузить историю
   fetch(`/api/history/${key}`)
@@ -416,7 +743,7 @@ function appendMessage(role, content, audioPath, source, animate, msgId) {
 
   const delBtn = document.createElement('button');
   delBtn.className = 'del-btn';
-  delBtn.title = 'Удалить';
+  delBtn.title = t('delete');
   delBtn.textContent = '×';
   delBtn.onclick = () => deleteMessage(msgId, wrap);
 
@@ -433,7 +760,7 @@ function showTyping() {
   removeTyping();
   const div = document.createElement('div');
   div.className = 'typing';
-  div.textContent = 'Агент печатает…';
+  div.textContent = t('typing');
   document.getElementById('messages').appendChild(div);
   scrollBottom();
 }
@@ -504,6 +831,11 @@ async def remove_message(message_id: int):
     return {"ok": True}
 
 
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page():
+    return SETTINGS_HTML
+
+
 @app.get("/api/tts-models")
 async def tts_models():
     return TTS_MODELS
@@ -515,18 +847,52 @@ async def models():
 
 
 @app.get("/api/settings/{agent}")
-async def get_settings(agent: str):
-    return {"model": get_agent_model(agent)}
+async def get_settings(agent: str, request: Request):
+    user_id = request.headers.get("X-Forwarded-User", "alex")
+    return get_effective_settings(agent, user_id)
 
 
 @app.put("/api/settings/{agent}")
 async def save_settings(agent: str, request: Request):
+    """Сохраняет глобальные настройки (admin). Вызывается со страницы /settings."""
     body = await request.json()
-    model = body.get("model", "")
-    if model not in AVAILABLE_MODELS:
+    allowed = {"model", "system_prompt", "temperature", "max_tokens", "tts_voice", "tts_lang", "ui_lang"}
+    fields = {k: v for k, v in body.items() if k in allowed}
+    if "model" in fields and fields["model"] not in AVAILABLE_MODELS:
         return JSONResponse({"error": "unknown model"}, status_code=400)
-    set_agent_model(agent, model)
-    return {"ok": True, "model": model}
+    save_global_settings(agent, fields)
+    return {"ok": True}
+
+
+@app.put("/api/user-settings/{agent}")
+async def save_user_settings_endpoint(agent: str, request: Request):
+    """Сохраняет пользовательские переопределения."""
+    user_id = request.headers.get("X-Forwarded-User", "alex")
+    body = await request.json()
+    save_user_setting(user_id, agent, body)
+    return {"ok": True}
+
+
+@app.delete("/api/user-settings/{agent}/{field}")
+async def reset_user_setting_endpoint(agent: str, field: str, request: Request):
+    """Сбрасывает пользовательское переопределение одного поля до глобального."""
+    user_id = request.headers.get("X-Forwarded-User", "alex")
+    reset_user_setting(user_id, agent, field)
+    return {"ok": True}
+
+
+@app.get("/api/ui-languages")
+async def ui_languages():
+    return UI_LANGUAGES
+
+
+@app.get("/api/agent-defaults")
+async def agent_defaults():
+    # Возвращаем дефолты (без system_prompt — слишком длинный для UI списка)
+    result = {}
+    for agent, d in AGENT_DEFAULTS.items():
+        result[agent] = {k: v for k, v in d.items() if k != "system_prompt"}
+    return result
 
 
 # ─── WebSocket ───────────────────────────────────────────────────────────────

@@ -13,23 +13,14 @@ from openai import AsyncOpenAI
 
 from src.gateway.router import register
 from src.db.conversations import get_history_text, get_history
-from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_agent_model
+from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_effective_settings
 from src.utils.obsidian import read_obsidian, append_dated_note
 
 logger = logging.getLogger(__name__)
 
-TTS_VOICE = "de-DE-ConradNeural"
 TTS_SPEED = "+0%"
 AUDIO_DIR = "/tmp/tutor_audio"
 AGENT_NAME = "tutor"
-
-SYSTEM_PROMPT = (
-    "Du bist Max Klein, ein freundlicher und geduldiger Deutschlehrer. "
-    "Du unterrichtest Russisch-Muttersprachler auf B1-Niveau. "
-    "Antworte auf Deutsch, erkläre kurz auf Russisch wenn nötig. "
-    "Maximal 3-4 Sätze pro Antwort. "
-    "Wenn der Schüler einen Fehler macht, korrigiere ihn sanft."
-)
 
 PROGRESS_PATH   = "01_Projects/Agents/tutor/progress.md"
 VOCABULARY_PATH = "01_Projects/Agents/tutor/vocabulary.md"
@@ -53,15 +44,26 @@ def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
 
 
 @register("tutor")
-async def process(user_input: str, voice_path: str = None, tts: bool = True, tts_model: str = "gemini-3.1-flash-tts-preview") -> dict:
+async def process(user_input: str, voice_path: str = None, tts: bool = True, tts_model: str = None, user_id: str = "alex", **kwargs) -> dict:
     """
-    Обрабатывает запрос к учителю немецкого.
+    Обрабатывает запрос к учителю.
     tts=False — не генерировать аудио.
     Возвращает {"text": str, "audio_path": str|None}.
     """
     os.makedirs(AUDIO_DIR, exist_ok=True)
 
-    model_key = get_agent_model(AGENT_NAME)
+    cfg = get_effective_settings(AGENT_NAME, user_id)
+    model_key  = cfg["model"]
+    tts_voice  = cfg.get("tts_voice", "Fenrir")
+    tts_lang   = cfg.get("tts_lang", "de-DE")
+    system_prompt = cfg.get("system_prompt", "")
+    temperature   = float(cfg.get("temperature", 0.7))
+    max_tokens    = int(cfg.get("max_tokens", 8192))
+    if tts_model is None:
+        tts_model = "gemini-3.1-flash-tts-preview"
+    # Edge TTS voice (IETF-tag from tts_lang)
+    edge_voice = f"{tts_lang}-ConradNeural" if tts_lang.startswith("de") else "uk-UA-OstapNeural"
+
     client, model_name = _make_client(model_key)
 
     history = get_history_text(AGENT_NAME, limit=20)
@@ -70,7 +72,7 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
     progress   = read_obsidian(PROGRESS_PATH)
     vocabulary = read_obsidian(VOCABULARY_PATH)
 
-    context_parts = [SYSTEM_PROMPT]
+    context_parts = [system_prompt]
     if progress:
         context_parts.append(f"## Прогресс ученика:\n{progress}")
     if vocabulary:
@@ -92,8 +94,8 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
     response = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_tokens=8192,
-        temperature=0.7,
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
     ai_reply = (response.choices[0].message.content or "").strip()
 
@@ -108,8 +110,8 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
         response = await fallback_client.chat.completions.create(
             model="gemini-2.5-flash",
             messages=messages,
-            max_tokens=8192,
-            temperature=0.7,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
         ai_reply = (response.choices[0].message.content or "").strip()
 
@@ -139,19 +141,20 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
     if tts:
         audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
         if tts_model == "edge-tts":
-            communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
+            communicate = edge_tts.Communicate(ai_reply.replace("*", ""), edge_voice, rate=TTS_SPEED)
             await communicate.save(audio_path)
         else:
-            ok = await _gemini_tts(ai_reply, audio_path, model=tts_model)
+            ok = await _gemini_tts(ai_reply, audio_path, model=tts_model, lang=tts_lang, voice=tts_voice)
             if not ok:
                 logger.warning(f"Gemini TTS ({tts_model}) failed, falling back to edge-tts")
-                communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
+                communicate = edge_tts.Communicate(ai_reply.replace("*", ""), edge_voice, rate=TTS_SPEED)
                 await communicate.save(audio_path)
 
     return {"text": ai_reply, "audio_path": audio_path}
 
 
-async def _gemini_tts(text: str, audio_path: str, model: str = "gemini-3.1-flash-tts-preview") -> bool:
+async def _gemini_tts(text: str, audio_path: str, model: str = "gemini-3.1-flash-tts-preview",
+                      lang: str = "de-DE", voice: str = "Fenrir") -> bool:
     """Генерирует аудио через Gemini TTS. Возвращает True при успехе."""
     import httpx
     import base64
@@ -167,9 +170,9 @@ async def _gemini_tts(text: str, audio_path: str, model: str = "gemini-3.1-flash
             "responseModalities": ["AUDIO"],
             "speechConfig": {
                 "voiceConfig": {
-                    "prebuiltVoiceConfig": {"voiceName": "Fenrir"}
+                    "prebuiltVoiceConfig": {"voiceName": voice}
                 },
-                "languageCode": "de-DE",
+                "languageCode": lang,
             },
         },
     }

@@ -10,20 +10,11 @@ from openai import AsyncOpenAI
 
 from src.gateway.router import register
 from src.db.conversations import get_history_text
-from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_agent_model
+from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_effective_settings
 
 logger = logging.getLogger(__name__)
 
 AGENT_NAME = "career"
-
-SYSTEM_PROMPT = (
-    "Ты опытный карьерный коуч. Помогаешь людям с поиском работы, "
-    "подготовкой к собеседованиям, составлением резюме, развитием карьеры "
-    "и профессиональным ростом. "
-    "Отвечай на русском языке. Будь конкретен и практичен. "
-    "Задавай уточняющие вопросы если нужно больше контекста. "
-    "Максимум 4-5 предложений за раз, если не просят подробнее."
-)
 
 
 def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
@@ -37,13 +28,16 @@ def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
 
 
 @register("career")
-async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
-    model_key = get_agent_model(AGENT_NAME)
-    client, model_name = _make_client(model_key)
+async def process(user_input: str, voice_path: str = None, user_id: str = "alex", **kwargs) -> dict:
+    cfg = get_effective_settings(AGENT_NAME, user_id)
+    client, model_name = _make_client(cfg["model"])
+    system_prompt = cfg.get("system_prompt", "")
+    temperature   = float(cfg.get("temperature", 0.7))
+    max_tokens    = int(cfg.get("max_tokens", 8192))
 
     history_text = get_history_text(AGENT_NAME, limit=20)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
 
     if history_text:
         messages.append({
@@ -56,8 +50,8 @@ async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
     response = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_tokens=8192,
-        temperature=0.7,
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
 
     text = (response.choices[0].message.content or "").strip()
