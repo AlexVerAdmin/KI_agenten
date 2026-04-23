@@ -47,7 +47,7 @@ Thumbs.db
 Desktop.ini
 
 # IDEs
-.vscode/
+.vscode/*.json.bak
 .idea/
 
 # Application specific
