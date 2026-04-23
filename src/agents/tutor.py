@@ -12,8 +12,9 @@ import edge_tts
 from openai import AsyncOpenAI
 
 from src.gateway.router import register
-from src.db.conversations import get_history_text
+from src.db.conversations import get_history_text, get_history
 from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_agent_model
+from src.utils.obsidian import read_obsidian, append_dated_note
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,12 @@ SYSTEM_PROMPT = (
     "Maximal 3-4 Sätze pro Antwort. "
     "Wenn der Schüler einen Fehler macht, korrigiere ihn sanft."
 )
+
+PROGRESS_PATH   = "01_Projects/Agents/tutor/progress.md"
+VOCABULARY_PATH = "01_Projects/Agents/tutor/vocabulary.md"
+
+# Записывать итог урока каждые N сообщений пользователя
+SUMMARY_EVERY = 10
 
 
 def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
@@ -58,7 +65,17 @@ async def process(user_input: str, voice_path: str = None) -> dict:
 
     history = get_history_text(AGENT_NAME, limit=20)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Загружаем прогресс и словарь из Obsidian
+    progress   = read_obsidian(PROGRESS_PATH)
+    vocabulary = read_obsidian(VOCABULARY_PATH)
+
+    context_parts = [SYSTEM_PROMPT]
+    if progress:
+        context_parts.append(f"## Прогресс ученика:\n{progress}")
+    if vocabulary:
+        context_parts.append(f"## Словарь ученика (последние слова):\n{vocabulary[-1500:]}")
+
+    messages = [{"role": "system", "content": "\n\n".join(context_parts)}]
     if history:
         messages.append({"role": "system", "content": f"История урока:\n{history}"})
 
@@ -78,6 +95,24 @@ async def process(user_input: str, voice_path: str = None) -> dict:
         temperature=0.7,
     )
     ai_reply = response.choices[0].message.content.strip()
+
+    # Каждые SUMMARY_EVERY сообщений пользователя — запрашиваем краткий итог у модели
+    history_count = len(get_history(AGENT_NAME, limit=500))
+    if history_count > 0 and history_count % SUMMARY_EVERY == 0:
+        try:
+            summary_resp = await client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": "Ты ассистент-секретарь. Напиши краткий итог урока на русском языке (3-5 пунктов): темы, ошибки ученика, новые слова."},
+                    {"role": "user", "content": f"Итог урока:\n{history}"},
+                ],
+                max_tokens=300,
+                temperature=0.3,
+            )
+            summary = summary_resp.choices[0].message.content.strip()
+            append_dated_note(PROGRESS_PATH, summary)
+        except Exception as e:
+            logger.warning(f"Не удалось записать итог урока: {e}")
 
     # TTS
     audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
