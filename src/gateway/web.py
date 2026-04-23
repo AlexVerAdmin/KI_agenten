@@ -96,6 +96,14 @@ HTML = """<!DOCTYPE html>
                   padding: 4px 8px; border-radius: 6px; font-size: 12px; outline: none; }
   #model-select:focus { border-color: #6b8cff; }
 
+  /* Voice toggle */
+  #voice-toggle { background: #222; border: 1px solid #333; color: #aaa;
+                  padding: 4px 10px; border-radius: 6px; font-size: 14px;
+                  cursor: pointer; transition: background 0.15s; }
+  #voice-toggle.on  { background: #1a3a2a; border-color: #3a8a5a; color: #5aba8a; }
+  #voice-toggle.off { background: #222;    border-color: #333;    color: #666; }
+  #header-right { display: flex; align-items: center; gap: 8px; }
+
   /* Delete button */
   .msg-wrap { position: relative; display: flex; }
   .msg-wrap.user { justify-content: flex-end; }
@@ -118,8 +126,11 @@ HTML = """<!DOCTYPE html>
 <div id="chat-area">
   <div id="chat-header">
     <span id="header-title">Выберите агента</span>
-    <select id="model-select" style="display:none" onchange="saveModel(this.value)">
-    </select>
+    <div id="header-right">
+      <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">🔇</button>
+      <select id="model-select" style="display:none" onchange="saveModel(this.value)">
+      </select>
+    </div>
   </div>
   <div id="messages"></div>
   <div id="input-area">
@@ -134,6 +145,15 @@ const AGENTS = AGENTS_JSON;
 let currentAgent = null;
 let ws = null;
 let availableModels = {};
+let voiceMode = false;  // голосовой режим (автоплей + TTS)
+
+function toggleVoice() {
+  voiceMode = !voiceMode;
+  const btn = document.getElementById('voice-toggle');
+  btn.textContent = voiceMode ? '\ud83d\udd0a' : '\ud83d\udd07';
+  btn.className = voiceMode ? 'on' : 'off';
+  btn.title = voiceMode ? 'Отключить звук' : 'Включить звук';
+}
 
 // Загрузить модели
  fetch('/api/models').then(r => r.json()).then(m => { availableModels = m; });
@@ -185,7 +205,7 @@ function selectAgent(key, label, btn) {
     const data = JSON.parse(e.data);
     removeTyping();
     if (data.type === 'message') {
-      appendMessage('assistant', data.text, data.audio_path, 'web', true, data.id);
+      appendMessage('assistant', data.text, data.audio_path, 'web', voiceMode, data.id);
       scrollBottom();
       document.getElementById('send-btn').disabled = false;
     }
@@ -260,7 +280,7 @@ function sendMessage() {
 
   appendMessage('user', text, null, 'web', false);
   scrollBottom();
-  ws.send(JSON.stringify({text}));
+  ws.send(JSON.stringify({text, tts: voiceMode}));
   input.value = '';
   input.style.height = 'auto';
   document.getElementById('send-btn').disabled = true;
@@ -348,9 +368,10 @@ async def websocket_endpoint(websocket: WebSocket, agent: str):
         while True:
             data = await websocket.receive_json()
             text = data.get("text", "").strip()
+            tts = bool(data.get("tts", False))
             if not text:
                 continue
-            result = await process(agent=agent, user_input=text, source="web")
+            result = await process(agent=agent, user_input=text, source="web", tts=tts)
             await websocket.send_json({
                 "type": "message",
                 "text": result["text"],

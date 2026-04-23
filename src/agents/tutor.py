@@ -53,10 +53,11 @@ def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
 
 
 @register("tutor")
-async def process(user_input: str, voice_path: str = None) -> dict:
+async def process(user_input: str, voice_path: str = None, tts: bool = True) -> dict:
     """
     Обрабатывает запрос к учителю немецкого.
-    Возвращает {"text": str, "audio_path": str}.
+    tts=False — не генерировать аудио.
+    Возвращает {"text": str, "audio_path": str|None}.
     """
     os.makedirs(AUDIO_DIR, exist_ok=True)
 
@@ -94,7 +95,9 @@ async def process(user_input: str, voice_path: str = None) -> dict:
         max_tokens=512,
         temperature=0.7,
     )
-    ai_reply = response.choices[0].message.content.strip()
+    ai_reply = (response.choices[0].message.content or "").strip()
+    if not ai_reply:
+        ai_reply = "(Модель вернула пустой ответ. Попробуйте ещё раз.)"
 
     # Каждые SUMMARY_EVERY сообщений пользователя — запрашиваем краткий итог у модели
     history_count = len(get_history(AGENT_NAME, limit=500))
@@ -114,9 +117,11 @@ async def process(user_input: str, voice_path: str = None) -> dict:
         except Exception as e:
             logger.warning(f"Не удалось записать итог урока: {e}")
 
-    # TTS
-    audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-    communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
-    await communicate.save(audio_path)
+    # TTS (только если запрошено)
+    audio_path = None
+    if tts:
+        audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+        communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
+        await communicate.save(audio_path)
 
     return {"text": ai_reply, "audio_path": audio_path}

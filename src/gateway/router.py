@@ -38,6 +38,7 @@ async def process(
     user_input: str,
     source: str = "telegram",
     voice_path: str = None,
+    **kwargs,
 ) -> dict:
     """
     Обрабатывает входящее сообщение через нужного агента.
@@ -64,7 +65,7 @@ async def process(
 
     # Вызываем агента
     try:
-        result = await _REGISTRY[agent](user_input, voice_path=voice_path)
+        result = await _REGISTRY[agent](user_input, voice_path=voice_path, **kwargs)
     except Exception as e:
         logger.error(f"Agent '{agent}' error: {e}", exc_info=True)
         result = {"text": f"❌ Ошибка агента: {e}", "audio_path": None}
