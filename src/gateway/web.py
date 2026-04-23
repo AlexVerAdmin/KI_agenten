@@ -133,10 +133,39 @@ HTML = """<!DOCTYPE html>
              font-size: 14px; line-height: 1; padding: 0 2px; }
   .msg:hover .del-btn { display: block; }
   .del-btn:hover { color: #e05555; }
+
+  /* Hamburger (mobile only) */
+  #menu-btn { display: none; background: none; border: none; color: #aaa;
+              font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1; }
+
+  /* Mobile */
+  @media (max-width: 640px) {
+    #menu-btn { display: block; }
+    #sidebar { position: fixed; top: 0; left: 0; height: 100%; z-index: 200;
+               transform: translateX(-100%); transition: transform 0.25s;
+               width: 220px; }
+    #sidebar.open { transform: translateX(0); box-shadow: 4px 0 20px #000a; }
+    #sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 199;
+                       background: #0008; }
+    #sidebar-overlay.open { display: block; }
+    .agent-btn { padding: 14px 16px; font-size: 16px; }
+    #chat-header { padding: 12px 12px; }
+    #header-right { gap: 6px; }
+    #voice-toggle, #dialog-toggle { padding: 8px 12px; font-size: 16px; }
+    #tts-model-select, #model-select { font-size: 12px; max-width: 110px; }
+    #messages { padding: 12px; }
+    .msg { max-width: 90%; font-size: 15px; }
+    #input-area { padding: 10px 12px; gap: 8px; }
+    #msg-input { font-size: 16px; /* предотвращает zoom на iOS */ }
+    #send-btn { padding: 10px 14px; font-size: 15px; }
+    #mic-btn { padding: 10px 14px; font-size: 18px; }
+    #lang-select { padding: 10px 6px; font-size: 13px; }
+  }
 </style>
 </head>
 <body>
 
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
 <div id="sidebar">
   <h2>Агенты</h2>
   <div id="agent-list"></div>
@@ -144,7 +173,10 @@ HTML = """<!DOCTYPE html>
 
 <div id="chat-area">
   <div id="chat-header">
-    <span id="header-title">Выберите агента</span>
+    <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+      <button id="menu-btn" onclick="openSidebar()" title="Агенты">&#9776;</button>
+      <span id="header-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Выберите агента</span>
+    </div>
     <div id="header-right">
       <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">&#x1F507;</button>
       <select id="tts-model-select" onchange="saveTtsModel(this.value)" title="TTS модель"></select>
@@ -289,9 +321,19 @@ Object.entries(AGENTS).forEach(([key, label]) => {
   list.appendChild(btn);
 });
 
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
 function selectAgent(key, label, btn) {
   if (currentAgent === key) return;
   currentAgent = key;
+  closeSidebar();
 
   // UI
   document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
