@@ -17,9 +17,12 @@ LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "gemma-4")
 
 # Список доступных моделей для UI
 AVAILABLE_MODELS = {
-    "gemini-2.5-flash": "Gemini 2.5 Flash (fast, stable)",
-    "gemini-2.5-pro":   "Gemini 2.5 Pro (smart, slow)",
-    "local":            f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
+    "gemini-2.5-flash":          "Gemini 2.5 Flash (fast, stable)",
+    "gemini-2.5-pro":            "Gemini 2.5 Pro (smart, slow)",
+    "gemini-3-flash-preview":    "Gemini 3 Flash Preview (new)",
+    "gemini-3.1-pro-preview":    "Gemini 3.1 Pro Preview (new, smart)",
+    "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite Preview (new, fast)",
+    "local":                     f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
 }
 
 # ─── Пути ──────────────────────────────────────────────────────────────────
