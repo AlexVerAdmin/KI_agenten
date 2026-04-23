@@ -138,7 +138,84 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True) -> 
     audio_path = None
     if tts:
         audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-        communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
-        await communicate.save(audio_path)
+        ok = await _gemini_tts(ai_reply, audio_path)
+        if not ok:
+            # Fallback: edge-tts
+            logger.warning("Gemini TTS failed, falling back to edge-tts")
+            communicate = edge_tts.Communicate(ai_reply.replace("*", ""), TTS_VOICE, rate=TTS_SPEED)
+            await communicate.save(audio_path)
 
     return {"text": ai_reply, "audio_path": audio_path}
+
+
+async def _gemini_tts(text: str, audio_path: str) -> bool:
+    """Генерирует аудио через Gemini TTS 3.1 Flash. Возвращает True при успехе."""
+    import httpx
+    import base64
+    import subprocess
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-3.1-flash-tts-preview:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": "Fenrir"}
+                },
+                "languageCode": "de-DE",
+            },
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as http:
+            resp = await http.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        parts = data["candidates"][0]["content"]["parts"]
+        audio_b64 = None
+        mime_type = "audio/pcm"
+        for part in parts:
+            inline = part.get("inlineData", {})
+            if inline:
+                audio_b64 = inline.get("data")
+                mime_type = inline.get("mimeType", "audio/pcm")
+                break
+
+        if not audio_b64:
+            logger.warning("Gemini TTS: нет аудио в ответе")
+            return False
+
+        raw_audio = base64.b64decode(audio_b64)
+
+        if "wav" in mime_type:
+            wav_path = audio_path.replace(".mp3", ".wav")
+            with open(wav_path, "wb") as f:
+                f.write(raw_audio)
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", wav_path, audio_path],
+                capture_output=True, timeout=30
+            )
+            os.remove(wav_path)
+        else:
+            # Raw PCM16 LE, 24kHz, mono
+            pcm_path = audio_path.replace(".mp3", ".pcm")
+            with open(pcm_path, "wb") as f:
+                f.write(raw_audio)
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-f", "s16le", "-ar", "24000", "-ac", "1",
+                 "-i", pcm_path, audio_path],
+                capture_output=True, timeout=30
+            )
+            os.remove(pcm_path)
+
+        return result.returncode == 0
+
+    except Exception as e:
+        logger.warning(f"Gemini TTS error: {e}")
+        return False
