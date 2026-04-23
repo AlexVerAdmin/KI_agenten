@@ -301,7 +301,7 @@ function scrollBottom() {
 
 function escHtml(t) {
   return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-          .replace(/\n/g,'<br>');
+          .replace(/\\n/g,'<br>');
 }
 </script>
 </body>
