@@ -553,12 +553,13 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 let recognition = null;
 let micActive = false;
 let silenceTimer = null;
-const SILENCE_MS = 2500;  // пауза тишины перед отправкой
+let finalTranscript = '';   // зафіксовані слова (isFinal=true)
+const SILENCE_MS = 2500;
 
 function getLang() {
   const sel = document.getElementById('lang-select').value;
   if (sel !== 'auto') return sel;
-  return currentAgent === 'tutor' ? 'de-DE' : 'ru-RU';
+  return currentAgent === 'tutor' ? 'de-DE' : 'uk-UA';
 }
 
 if (SpeechRecognition) {
@@ -568,13 +569,21 @@ if (SpeechRecognition) {
 
   recognition.onresult = (e) => {
     const input = document.getElementById('msg-input');
-    let transcript = '';
-    for (let i = 0; i < e.results.length; i++) {
-      transcript += e.results[i][0].transcript;
-    }
-    input.value = transcript;
+    let interim = '';
 
-    // Сбрасываем таймер паузы при каждом новом результате
+    // Обходимо тільки нові результати починаючи з e.resultIndex
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        finalTranscript += t;
+      } else {
+        interim += t;
+      }
+    }
+
+    input.value = finalTranscript + interim;
+
+    // Скидаємо таймер тиші при кожному новому результаті
     clearTimeout(silenceTimer);
     silenceTimer = setTimeout(() => {
       if (micActive && input.value.trim()) {
@@ -586,7 +595,7 @@ if (SpeechRecognition) {
 
   recognition.onerror = (e) => { clearTimeout(silenceTimer); stopMic(); };
   recognition.onend   = () => {
-    // continuous=true запускает onend при ошибках; перезапускаем если мик ещё активен
+    // continuous=true запускає onend при помилках; перезапускаємо якщо мік ще активний
     if (micActive) { try { recognition.start(); } catch(e) { stopMic(); } }
   };
 }
@@ -599,6 +608,7 @@ function toggleMic() {
 function startMic() {
   if (!recognition || !currentAgent) return;
   micActive = true;
+  finalTranscript = '';   // скидаємо накопичений текст
   document.getElementById('msg-input').value = '';
   document.getElementById('mic-btn').className = 'listening';
   recognition.lang = getLang();
