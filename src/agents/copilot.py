@@ -181,7 +181,7 @@ def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
 
 
 @register("copilot")
-async def process(user_input: str, voice_path: str = None) -> dict:
+async def process(user_input: str, voice_path: str = None, **kwargs) -> dict:
     model_key = get_agent_model(AGENT_NAME)
     client, model_name = _make_client(model_key)
 
