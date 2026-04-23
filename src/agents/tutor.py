@@ -92,7 +92,7 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True) -> 
     response = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_tokens=2048,
+        max_tokens=8192,
         temperature=0.7,
     )
     ai_reply = (response.choices[0].message.content or "").strip()
@@ -108,7 +108,7 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True) -> 
         response = await fallback_client.chat.completions.create(
             model="gemini-2.5-flash",
             messages=messages,
-            max_tokens=2048,
+            max_tokens=8192,
             temperature=0.7,
         )
         ai_reply = (response.choices[0].message.content or "").strip()
