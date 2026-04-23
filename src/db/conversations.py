@@ -18,10 +18,14 @@ from contextlib import contextmanager
 DB_PATH = Path(os.environ.get("SQLITE_DB_PATH", "/app/data/conversations.sqlite"))
 
 
+MAX_MESSAGES_PER_AGENT = int(os.environ.get("MAX_MESSAGES_PER_AGENT", "500"))
+
+
 def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _conn() as conn:
         conn.executescript("""
+            PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS messages (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent      TEXT    NOT NULL,
@@ -54,14 +58,22 @@ def save_message(
     source: str = "telegram",
     audio_path: str = None,
 ) -> int:
-    """Сохраняет сообщение и возвращает его id."""
+    """Сохраняет сообщение, возвращает id. После записи обрезает до MAX_MESSAGES_PER_AGENT."""
     with _conn() as conn:
         cur = conn.execute(
             "INSERT INTO messages (agent, source, role, content, audio_path, timestamp)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             (agent, source, role, content, audio_path, datetime.utcnow().isoformat()),
         )
-        return cur.lastrowid
+        new_id = cur.lastrowid
+        # AUTO_TRIM: удаляем старые сообщения сверх лимита
+        conn.execute(
+            "DELETE FROM messages WHERE agent = ? AND id NOT IN ("
+            "  SELECT id FROM messages WHERE agent = ? ORDER BY id DESC LIMIT ?"
+            ")",
+            (agent, agent, MAX_MESSAGES_PER_AGENT),
+        )
+        return new_id
 
 
 def get_history(agent: str, limit: int = 20) -> list[dict]:
