@@ -1,5 +1,7 @@
 import os
 import logging
+import asyncio
+import aiohttp
 import litellm
 from src.config import GEMINI_API_KEY, ANTHROPIC_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME
 
@@ -55,9 +57,33 @@ async def chat_completion(
 
     # Обработка локальной модели
     if model == "local":
+        # Проверяем доступность перед вызовом
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{LOCAL_MODEL_URL}/models", timeout=aiohttp.ClientTimeout(total=3)
+                ) as resp:
+                    if resp.status >= 400:
+                        raise ConnectionError()
+        except Exception:
+            raise litellm.InternalServerError(
+                message=(
+                    f"⚠️ Локальная модель недоступна ({LOCAL_MODEL_URL}). "
+                    "Она работает только на ноутбуке. Выбери Gemini или Claude."
+                ),
+                llm_provider="openai",
+                model=LOCAL_MODEL_NAME,
+            )
         params["model"] = f"openai/{LOCAL_MODEL_NAME}"
         params["api_base"] = LOCAL_MODEL_URL
         params["api_key"] = "local"
+        # Локальная модель: контекст 4096 — обрезаем историю и ответ
+        params["max_tokens"] = min(params.get("max_tokens", 8192), 1024)
+        # Оставляем: system + последние 6 сообщений (3 пары user/assistant) + текущий user
+        msgs = params["messages"]
+        system_msgs = [m for m in msgs if m["role"] == "system"]
+        other_msgs = [m for m in msgs if m["role"] != "system"]
+        params["messages"] = system_msgs + other_msgs[-7:]
     
     try:
         logger.info(f"LLM Call: {params['model']}")

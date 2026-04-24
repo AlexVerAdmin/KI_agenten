@@ -19,7 +19,7 @@ def start_server():
     cmd = [
         VENV_PYTHON, "-m", "llama_cpp.server",
         "--model", MODEL_PATH,
-        "--host", "127.0.0.1",
+        "--host", "0.0.0.0",
         "--port", str(PORT),
         "--n_ctx", "4096",
         "--n_threads", str(os.cpu_count())
