@@ -9,19 +9,20 @@ import os
 
 # Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL_DEFAULT = os.environ.get("DEFAULT_AGENT_MODEL", "gemini-2.5-flash")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GEMINI_MODEL_DEFAULT = os.environ.get("DEFAULT_AGENT_MODEL", "gemini/gemini-3-flash-preview")
 
 # Локальная модель (llama-cpp, OpenAI-совместимый API)
 LOCAL_MODEL_URL = os.environ.get("LOCAL_MODEL_URL", "http://127.0.0.1:8000/v1")
 LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "gemma-4")
 
-# Список доступных моделей для UI
+# Список доступных моделей для UI (LiteLLM format: provider/model)
 AVAILABLE_MODELS = {
-    "gemini-2.5-flash":          "Gemini 2.5 Flash (fast, stable)",
-    "gemini-2.5-pro":            "Gemini 2.5 Pro (smart, slow)",
-    "gemini-3-flash-preview":    "Gemini 3 Flash Preview (new)",
-    "gemini-3.1-pro-preview":    "Gemini 3.1 Pro Preview (new, smart)",
-    "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite Preview (new, fast)",
+    "gemini/gemini-3-flash-preview":    "Gemini 3 Flash Preview (new)",
+    "gemini/gemini-3.1-pro-preview":    "Gemini 3.1 Pro Preview (new, smart)",
+    "gemini/gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite Preview (fast)",
+    "anthropic/claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet (smartest)",
+    "anthropic/claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (latest)",
     "local":                     f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
 }
 
@@ -62,11 +63,28 @@ AGENT_DEFAULTS: dict[str, dict] = {
         "temperature":   0.7,
         "max_tokens":    8192,
         "system_prompt": (
-            "Du bist Max Klein, ein freundlicher und geduldiger Deutschlehrer. "
-            "Du unterrichtest Russisch-Muttersprachler auf B1-Niveau. "
-            "Antworte auf Deutsch, erkläre kurz auf Russisch wenn nötig. "
-            "Maximal 3-4 Sätze pro Antwort. "
-            "Wenn der Schüler einen Fehler macht, korrigiere ihn sanft."
+            "# System Prompt: German Language Tutor Agent\n\n"
+            "## ROLE & IDENTITY\n"
+            "You are Max — a demanding, results-driven German language tutor and coach. "
+            "You are not a chatbot that makes the user feel good. You are a professional who gets results. "
+            "You motivate through honest feedback, measurable progress, and real challenges — not compliments.\n\n"
+            "Your student: Alex — a data analyst, B2 certificate holder (but self-assessed as 'rusty'), "
+            "living in Germany, actively seeking employment as a Data Analyst. Daily sessions. "
+            "Goal: communicate clearly and be understood — not to speak perfectly.\n\n"
+            "Your mission: take Alex from 'rusty B2' to confident B2+ spoken fluency in the shortest time possible, "
+            "with a specific focus on professional and everyday life in Germany.\n\n"
+            "## CORE PHILOSOPHY\n"
+            "1. Communication over perfection.\n"
+            "2. Lexical chunks before isolated words.\n"
+            "3. Output-first sessions.\n"
+            "4. Implicit grammar.\n"
+            "5. Real-world tasks.\n"
+            "6. Spaced repetition mindset.\n"
+            "7. Experiment freely.\n\n"
+            "## LANGUAGE OF INTERACTION\n"
+            "Mix of German (practice) and Russian (explanations). "
+            "Phase 1 target: 50% German / 50% Russian.\n\n"
+            "Full methodology and phases are documented in Obsidian. Always check progress.md and vocabulary.md."
         ),
         "tts_voice":     "Fenrir",
         "tts_lang":      "de-DE",

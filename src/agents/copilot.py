@@ -16,12 +16,11 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from openai import AsyncOpenAI
+from src.llm import chat_completion
 
 from src.gateway.router import register
 from src.db.conversations import get_history
 from src.config import (
-    GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME,
     OBSIDIAN_VAULT, get_effective_settings,
 )
 
@@ -170,14 +169,7 @@ def _tool_write_plan(title: str, content: str) -> str:
 
 # ─── Основной процессор ──────────────────────────────────────────────────────
 
-def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
-    if model == "local":
-        return AsyncOpenAI(base_url=LOCAL_MODEL_URL, api_key="local"), LOCAL_MODEL_NAME
-    else:
-        return AsyncOpenAI(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=GEMINI_API_KEY,
-        ), model
+# _make_client removed, logic moved to src.llm
 
 
 @register("copilot")
@@ -189,8 +181,6 @@ async def process(user_input: str, voice_path: str = None, user_id: str = "alex"
     base_prompt = cfg.get("system_prompt", "")
     effective_prompt = base_prompt + f"\n\n## Codebase Index\n{_CODEBASE_INDEX}"
 
-    client, model_name = _make_client(model_key)
-
     # Строим историю
     history = get_history(AGENT_NAME, limit=20)
     messages = [{"role": "system", "content": effective_prompt}]
@@ -200,11 +190,10 @@ async def process(user_input: str, voice_path: str = None, user_id: str = "alex"
 
     # Агентный цикл: модель может вызывать инструменты несколько раз
     for _ in range(5):  # максимум 5 итераций tool-calling
-        response = await client.chat.completions.create(
-            model=model_name,
+        response = await chat_completion(
+            model=model_key,
             messages=messages,
             tools=TOOLS,
-            tool_choice="auto",
             temperature=temperature,
         )
 
@@ -214,9 +203,9 @@ async def process(user_input: str, voice_path: str = None, user_id: str = "alex"
         if not msg.tool_calls:
             text = (msg.content or "").strip()
             if not text:
-                # Gemini иногда возвращает None content при work с tools — retry без tools
-                retry = await client.chat.completions.create(
-                    model=model_name,
+                # Gemini иногда возвращает None content при работе с tools — retry без tools
+                retry = await chat_completion(
+                    model=model_key,
                     messages=messages,
                     temperature=temperature,
                 )

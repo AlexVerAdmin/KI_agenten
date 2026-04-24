@@ -8,9 +8,8 @@
 import os
 import uuid
 import json
-import logging
 import edge_tts
-from openai import AsyncOpenAI
+from src.llm import chat_completion
 
 from src.gateway.router import register
 from src.db.conversations import get_history_text, get_history
@@ -88,18 +87,7 @@ def _tool_update_progress(note: str) -> str:
     return "✅ Fortschritt gespeichert" if ok else "⚠️ Fehler beim Speichern"
 
 
-def _make_client(model: str) -> tuple[AsyncOpenAI, str]:
-    """Возвращает (AsyncOpenAI client, model_name) в зависимости от выбранной модели."""
-    if model == "local":
-        client = AsyncOpenAI(base_url=LOCAL_MODEL_URL, api_key="local")
-        return client, LOCAL_MODEL_NAME
-    else:
-        # Gemini через OpenAI-совместимый endpoint
-        client = AsyncOpenAI(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=GEMINI_API_KEY,
-        )
-        return client, model
+# _make_client removed, logic moved to src.llm
 
 
 @register("tutor")
@@ -122,8 +110,6 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
         tts_model = "gemini-3.1-flash-tts-preview"
     # Edge TTS voice (IETF-tag from tts_lang)
     edge_voice = f"{tts_lang}-ConradNeural" if tts_lang.startswith("de") else "uk-UA-OstapNeural"
-
-    client, model_name = _make_client(model_key)
 
     history = get_history_text(AGENT_NAME, limit=20)
 
@@ -152,11 +138,10 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
     # Агентный цикл: модель может вызывать инструменты
     ai_reply = ""
     for _ in range(5):
-        response = await client.chat.completions.create(
-            model=model_name,
+        response = await chat_completion(
+            model=model_key,
             messages=messages,
             tools=TOOLS,
-            tool_choice="auto",
             max_tokens=max_tokens,
             temperature=temperature,
         )
@@ -186,15 +171,11 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
             logger.info(f"Tool {tc.function.name}: {result}")
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-    # Fallback: пустой ответ (Gemini thinking mode) — retry без tools
-    if not ai_reply and model_name != "gemini-2.5-flash":
-        logger.warning(f"Empty content from {model_name}, retrying without tools")
-        fallback_client = AsyncOpenAI(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=GEMINI_API_KEY,
-        )
-        response = await fallback_client.chat.completions.create(
-            model="gemini-2.5-flash",
+    # Fallback: пустой ответ — retry
+    if not ai_reply:
+        logger.warning(f"Empty content from {model_key}, retrying with basic settings")
+        response = await chat_completion(
+            model=model_key,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -208,8 +189,8 @@ async def process(user_input: str, voice_path: str = None, tts: bool = True, tts
     history_count = len(get_history(AGENT_NAME, limit=500))
     if history_count > 0 and history_count % SUMMARY_EVERY == 0:
         try:
-            summary_resp = await client.chat.completions.create(
-                model=model_name,
+            summary_resp = await chat_completion(
+                model=model_key,
                 messages=[
                     {"role": "system", "content": "Ты ассистент-секретарь. Напиши краткий итог урока на русском языке (3-5 пунктов): темы, ошибки ученика, новые слова."},
                     {"role": "user", "content": f"Итог урока:\n{history}"},
