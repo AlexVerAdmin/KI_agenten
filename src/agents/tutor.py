@@ -8,6 +8,7 @@
 import os
 import uuid
 import json
+import logging
 import edge_tts
 from src.llm import chat_completion
 
