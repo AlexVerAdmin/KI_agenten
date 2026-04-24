@@ -17,13 +17,18 @@ LOCAL_MODEL_URL = os.environ.get("LOCAL_MODEL_URL", "http://127.0.0.1:8000/v1")
 LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "gemma-4")
 
 # Список доступных моделей для UI (LiteLLM format: provider/model)
+# Обновлено 2026-04-24: убраны deprecated модели
 AVAILABLE_MODELS = {
-    "gemini/gemini-3-flash-preview":    "Gemini 3 Flash Preview (new)",
-    "gemini/gemini-3.1-pro-preview":    "Gemini 3.1 Pro Preview (new, smart)",
-    "gemini/gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite Preview (fast)",
-    "anthropic/claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet (smartest)",
-    "anthropic/claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (latest)",
-    "local":                     f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
+    # Gemini (актуальные на апрель 2026)
+    "gemini/gemini-2.5-flash":          "Gemini 2.5 Flash (fast, cheap)",
+    "gemini/gemini-2.5-pro":            "Gemini 2.5 Pro (smart)",
+    "gemini/gemini-3-flash-preview":    "Gemini 3 Flash Preview (newest)",
+    # Anthropic Claude (актуальные на апрель 2026, проверено через API)
+    # claude-3-7-sonnet-20250219 — НЕДОСТУПЕН для этого ключа
+    "anthropic/claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
+    "anthropic/claude-sonnet-4-6":          "Claude Sonnet 4.6 (latest)",
+    # Локальная
+    "local": f"Local: {LOCAL_MODEL_NAME} (:{LOCAL_MODEL_URL.split(':')[-1].split('/')[0]})",
 }
 
 # Список TTS-моделей для UI
