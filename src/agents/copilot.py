@@ -234,4 +234,15 @@ async def process(user_input: str, voice_path: str = None, user_id: str = "alex"
                 "content": result,
             })
 
-    return {"text": "Достигнут лимит итераций инструментов.", "audio_path": None}
+    # Цикл tool-calling исчерпан — принудительно запрашиваем финальный ответ без tools
+    messages.append({
+        "role": "user",
+        "content": "[Системное: ты уже собрал достаточно данных. Сформулируй финальный ответ пользователю. Не вызывай больше инструменты.]",
+    })
+    final_resp = await chat_completion(
+        model=model_key,
+        messages=messages,
+        temperature=temperature,
+    )
+    text = (final_resp.choices[0].message.content or "").strip()
+    return {"text": text or "Не удалось получить финальный ответ.", "audio_path": None}
