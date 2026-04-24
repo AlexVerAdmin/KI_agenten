@@ -69,9 +69,13 @@ SYSTEM_PROMPT = f"""\
 Помогаешь обсуждать архитектуру и код через телефон/веб, когда ноутбук недоступен.
 Отвечаешь на русском языке. Будь конкретен и лаконичен.
 
-Когда нужно прочитать файл — используй инструмент read_file.
-Когда обсуждение завершено и есть конкретный план — используй write_plan.
-Не применяй изменения сам — только обсуждай и записывай план.
+ПРАВИЛА:
+- ВСЕГДА отвечай на ТЕКУЩИЙ вопрос пользователя напрямую.
+- История чата — только справочный контекст о прошлых обсуждениях, НЕ список задач для анализа.
+- Если вопрос простой (приветствие, уточнение, общий вопрос) — отвечай текстом БЕЗ инструментов.
+- Используй read_file только когда нужно посмотреть конкретный файл для ответа.
+- Используй write_plan только когда пользователь явно просит записать план.
+- Не применяй изменения сам — только обсуждай и записывай план.
 
 ## Codebase Index
 {_CODEBASE_INDEX}
@@ -151,7 +155,7 @@ def _tool_read_file(path: str) -> str:
 
 
 def _tool_write_plan(title: str, content: str) -> str:
-    """Записывает план в Obsidian."""
+    """Записывает план в Obsidian. Если файл существует — дописывает в конец."""
     try:
         PLANS_DIR.mkdir(parents=True, exist_ok=True)
         slug = re.sub(r"[^\w\s-]", "", title.lower())
@@ -160,9 +164,25 @@ def _tool_write_plan(title: str, content: str) -> str:
         filename = f"{timestamp}_{slug}.md"
         filepath = PLANS_DIR / filename
 
-        full_content = f"# {title}\n\n_{timestamp}_\n\n{content}\n"
-        filepath.write_text(full_content, encoding="utf-8")
-        return f"✅ План записан: 00_Inbox/copilot/{filename}"
+        footer = (
+            "\n\n---\n"
+            f"> ⚠️ **Для Copilot на ноутбуке**: после выполнения этого плана "
+            f"удали файл `00_Inbox/copilot/{filename}`\n"
+        )
+
+        if filepath.exists():
+            existing = filepath.read_text(encoding="utf-8")
+            # Убираем старый footer перед дополнением
+            marker = "\n\n---\n> ⚠️ **Для Copilot на ноутбуке**"
+            if marker in existing:
+                existing = existing[:existing.rfind(marker)]
+            addition = f"\n\n---\n\n## Дополнение {timestamp}\n\n{content}"
+            filepath.write_text(existing + addition + footer, encoding="utf-8")
+            return f"✅ План дополнен: 00_Inbox/copilot/{filename}"
+        else:
+            full_content = f"# {title}\n\n_{timestamp}_\n\n{content}{footer}"
+            filepath.write_text(full_content, encoding="utf-8")
+            return f"✅ План записан: 00_Inbox/copilot/{filename}"
     except Exception as e:
         return f"ERROR: не удалось записать план: {e}"
 
@@ -181,11 +201,14 @@ async def process(user_input: str, voice_path: str = None, user_id: str = "alex"
     base_prompt = cfg.get("system_prompt", "")
     effective_prompt = base_prompt + f"\n\n## Codebase Index\n{_CODEBASE_INDEX}"
 
-    # Строим историю
+    # Строим историю (фильтруем сообщения-ошибки — они сбивают агента с толку)
     history = get_history(AGENT_NAME, limit=20)
     messages = [{"role": "system", "content": effective_prompt}]
     for msg in history:
-        messages.append({"role": msg["role"], "content": msg["content"]})
+        content = msg["content"] or ""
+        if content.startswith("❌") or "Достигнут лимит итераций" in content:
+            continue
+        messages.append({"role": msg["role"], "content": content})
     messages.append({"role": "user", "content": user_input})
 
     # Агентный цикл: модель может вызывать инструменты несколько раз
