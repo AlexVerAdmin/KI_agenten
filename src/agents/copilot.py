@@ -155,19 +155,21 @@ def _tool_read_file(path: str) -> str:
 
 
 def _tool_write_plan(title: str, content: str) -> str:
-    """Записывает план в Obsidian. Если файл существует — дописывает в конец."""
+    """Записывает план в Obsidian под постоянным именем.
+    Если файл существует — дописывает в конец. Удаляется после выполнения на ноутбуке."""
     try:
         PLANS_DIR.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r"[^\w\s-]", "", title.lower())
-        slug = re.sub(r"[\s]+", "-", slug.strip())[:40]
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        filename = f"{timestamp}_{slug}.md"
+        # Имя файла = только заголовок, без даты (чтобы дополнять один и тот же файл)
+        slug = re.sub(r"[^\w\s-]", "", title)
+        slug = re.sub(r"[\s]+", "_", slug.strip())[:60]
+        filename = f"{slug}.md"
         filepath = PLANS_DIR / filename
 
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         footer = (
             "\n\n---\n"
-            f"> ⚠️ **Для Copilot на ноутбуке**: после выполнения этого плана "
-            f"удали файл `00_Inbox/copilot/{filename}`\n"
+            f"> ⚠️ **Для Copilot на ноутбуке**: после выполнения плана "
+            f"удали этот файл `00_Inbox/copilot/{filename}`\n"
         )
 
         if filepath.exists():
