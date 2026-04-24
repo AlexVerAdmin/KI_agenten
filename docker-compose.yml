@@ -2,7 +2,7 @@ services:
   # UI (Streamlit интерфейс под защитой Authelia)
   ui:
     build: .
-    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    command: python -m src.main
     user: "1001:1001"
     restart: always
     extra_hosts:
@@ -28,7 +28,7 @@ services:
       - "traefik.http.routers.antigravity-ui.tls.certresolver=letsencrypt"
       # Подключение вашей цепочки мидлвар (secured-chain@file)
       - "traefik.http.routers.antigravity-ui.middlewares=secured-chain@file"
-      - "traefik.http.services.antigravity-ui.loadbalancer.server.port=8501"
+      - "traefik.http.services.antigravity-ui.loadbalancer.server.port=8080"
 
   # Синхронизация Obsidian (Syncthing)
   syncthing:
