@@ -37,8 +37,6 @@ chroma_db/
 memory_v2.sqlite
 *.sqlite3
 *.db
-data/
-runtime_sync/
 
 # OS generated files
 .DS_Store
@@ -51,10 +49,8 @@ Thumbs.db
 Desktop.ini
 
 # IDEs
-.vscode/
-!.vscode/settings.json
+.vscode/*.json.bak
 .idea/
-*.code-workspace
 
 # Application specific
 copilot_history.md
@@ -63,9 +59,3 @@ logs/
 *.zip
 *.tar.gz
 *.gguf
-
-# Knowledge and History (Synchronized separately via Obsidian)
-knowledge/
-history/
-obsidian_vault_simulation/
-tests/
