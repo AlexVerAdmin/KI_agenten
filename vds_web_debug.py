@@ -710,21 +710,10 @@ function toggleDialog() {
   if (dialogMode && !voiceMode) toggleVoice();
 }
 
-function updateRealtimeVisibility(s) {
-  const btn = document.getElementById('realtime-toggle');
-  if (s.realtime_enabled) {
-    btn.style.display = 'inline-block';
-  } else {
-    btn.style.display = 'none';
-    if (realtimeMode) toggleRealtime();
-  }
-}
-
 async function toggleRealtime() {
   realtimeMode = !realtimeMode;
   const btn = document.getElementById('realtime-toggle');
   btn.className = realtimeMode ? 'on' : 'off';
-  btn.textContent = realtimeMode ? 'Live: ON' : 'Live';
   if (realtimeMode) {
     startRealtime();
   } else {
