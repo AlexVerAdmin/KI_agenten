@@ -751,11 +751,14 @@ async function startRealtime() {
   if (!currentAgent) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   try {
+  // Отдельный AudioContext для захвата (16kHz) и воспроизведения (24kHz от Gemini)
+  audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+  const playbackCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000});
+  let nextPlayTime = 0;  // планировщик очереди воспроизведения
+
   realtimeWs = new WebSocket(`${proto}://${location.host}/ws/realtime/${currentAgent}`);
   realtimeWs.binaryType = 'arraybuffer';
 
-  audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
-  
   // Захват микрофона
   const stream = await navigator.mediaDevices.getUserMedia({audio: true});
   inputSource = audioContext.createMediaStreamSource(stream);
@@ -764,7 +767,6 @@ async function startRealtime() {
   processor.onaudioprocess = (e) => {
     if (realtimeWs && realtimeWs.readyState === 1) {
       const inputData = e.inputBuffer.getChannelData(0);
-      // Конвертация в Int16
       const pcmData = new Int16Array(inputData.length);
       for (let i = 0; i < inputData.length; i++) {
         pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
@@ -776,22 +778,46 @@ async function startRealtime() {
   inputSource.connect(processor);
   processor.connect(audioContext.destination);
 
-  realtimeWs.onmessage = async (e) => {
+  realtimeWs.onmessage = (e) => {
     if (e.data instanceof ArrayBuffer) {
-      // Воспроизведение входящего аудио
-      const audioBuffer = await audioContext.decodeAudioData(e.data);
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.start();
+      // Gemini отдаёт сырой PCM Int16 24kHz — decodeAudioData не подходит
+      const int16 = new Int16Array(e.data);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768.0;
+      }
+      const buf = playbackCtx.createBuffer(1, float32.length, 24000);
+      buf.copyToChannel(float32, 0);
+      const src = playbackCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(playbackCtx.destination);
+      // Планируем встык — без пауз и перекрытий
+      const now = playbackCtx.currentTime;
+      if (nextPlayTime < now) nextPlayTime = now;
+      src.start(nextPlayTime);
+      nextPlayTime += buf.duration;
     } else {
       const data = JSON.parse(e.data);
       if (data.type === 'text') {
         appendMessage('assistant', data.text, null, 'web', false);
+      } else if (data.type === 'interrupted') {
+        nextPlayTime = 0;  // сброс очереди при прерывании
+      } else if (data.type === 'error') {
+        console.error('Realtime error:', data.text);
       }
     }
   };
-  
+
+  realtimeWs.onclose = () => {
+    if (realtimeMode) {
+      realtimeMode = false;
+      const btn = document.getElementById('realtime-toggle');
+      btn.className = 'off';
+      btn.textContent = 'Live';
+    }
+    playbackCtx.close();
+  };
+
   document.getElementById('mic-btn').classList.add('realtime');
   } catch(err) {
     console.error('startRealtime error:', err);
