@@ -19,11 +19,15 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Antigravity Agents")
 
 # Импортируем агентов чтобы они зарегистрировались в router
-import src.agents.tutor    # noqa: F401
-import src.agents.career   # noqa: F401
-import src.agents.copilot  # noqa: F401
+try:
+    import src.agents.tutor    # noqa: F401
+    import src.agents.career   # noqa: F401
+    import src.agents.copilot  # noqa: F401
+except ImportError:
+    logger.warning("Could not import agents, some functionality may be limited")
 
 from src.gateway.router import process, AGENT_LABELS
+from src.gateway.realtime_handler import handle_realtime_voice
 from src.db.conversations import get_recent_messages, delete_message
 from src.config import (
     AVAILABLE_MODELS, TTS_MODELS, AGENT_DEFAULTS, UI_LANGUAGES,
@@ -198,6 +202,36 @@ function buildPane(agent, info, s) {
           <select id="${agent}-tts_lang">${ttsLangOpts}</select>
         </div>
       </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Realtime Voice (Gemini Live)</div>
+      <div class="row-2">
+        <div class="field">
+          <label>Режим Realtime</label>
+          <select id="${agent}-realtime_enabled">
+            <option value="false" ${s.realtime_enabled === false ? 'selected' : ''}>Вимкнено</option>
+            <option value="true" ${s.realtime_enabled === true ? 'selected' : ''}>Увімкнено</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Режим активації</label>
+          <select id="${agent}-realtime_voice_mode">
+            <option value="auto-pause" ${s.realtime_voice_mode === 'auto-pause' ? 'selected' : ''}>Auto-Pause</option>
+            <option value="always-on" ${s.realtime_voice_mode === 'always-on' ? 'selected' : ''}>Always On</option>
+            <option value="push-to-talk" ${s.realtime_voice_mode === 'push-to-talk' ? 'selected' : ''}>Push-to-Talk</option>
+          </select>
+        </div>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Пауза тиші (мс)</label>
+          <input type="number" id="${agent}-realtime_silence_ms" value="${s.realtime_silence_ms ?? 2000}" min="500" max="5000" step="100">
+        </div>
+        <div class="field">
+          <label>Швидкість мовлення</label>
+          <input type="number" id="${agent}-realtime_speech_rate" value="${s.realtime_speech_rate ?? 1.0}" min="0.5" max="2.0" step="0.1">
+        </div>
+      </div>
     </div>` : '';
 
   return `
@@ -253,12 +287,19 @@ function switchTab(agent) {
 }
 
 async function saveGlobal(agent) {
-  const fields = ['model', 'system_prompt', 'temperature', 'max_tokens', 'tts_voice', 'tts_lang', 'ui_lang'];
+  const fields = [
+    'model', 'system_prompt', 'temperature', 'max_tokens', 'tts_voice', 'tts_lang', 'ui_lang',
+    'realtime_enabled', 'realtime_silence_ms', 'realtime_speech_rate', 'realtime_voice_mode'
+  ];
   const body = {};
   for (const f of fields) {
     const el = document.getElementById(`${agent}-${f}`);
     if (!el) continue;
-    body[f] = el.type === 'number' ? parseFloat(el.value) : el.value;
+    let val = el.value;
+    if (el.type === 'number') val = parseFloat(val);
+    if (val === 'true') val = true;
+    if (val === 'false') val = false;
+    body[f] = val;
   }
   const res = await fetch(`/api/settings/${agent}`, {
     method: 'PUT',
@@ -272,12 +313,19 @@ async function saveGlobal(agent) {
 
 async function saveForMe(agent) {
   // тільки USER_OVERRIDABLE_FIELDS: model, system_prompt, tts_voice, tts_lang, ui_lang
-  const fields = ['model', 'system_prompt', 'tts_voice', 'tts_lang', 'ui_lang'];
+  const fields = [
+    'model', 'system_prompt', 'tts_voice', 'tts_lang', 'ui_lang',
+    'realtime_enabled', 'realtime_silence_ms', 'realtime_speech_rate', 'realtime_voice_mode'
+  ];
   const body = {};
   for (const f of fields) {
     const el = document.getElementById(`${agent}-${f}`);
     if (!el) continue;
-    body[f] = el.value;
+    let val = el.value;
+    if (el.type === 'number') val = parseFloat(val);
+    if (val === 'true') val = true;
+    if (val === 'false') val = false;
+    body[f] = val;
   }
   const res = await fetch(`/api/user-settings/${agent}`, {
     method: 'PUT',
@@ -390,12 +438,18 @@ HTML = """<!DOCTYPE html>
                    cursor: pointer; transition: background 0.15s; }
   #dialog-toggle.on { background: #3a1a3a; border-color: #8a3a8a; color: #ca7aca; }
   #header-right { display: flex; align-items: center; gap: 8px; }
+  /* Realtime toggle */
+  #realtime-toggle { background: #222; border: 1px solid #333; color: #aaa;
+                     padding: 4px 10px; border-radius: 6px; font-size: 13px;
+                     cursor: pointer; transition: background 0.15s; display: inline-block; }
+  #realtime-toggle.on { background: #1a3a2a !important; border-color: #3a8a5a !important; color: #5aba8a !important; }
   /* Microphone button */
   #mic-btn { background: #222; border: 1px solid #333; color: #aaa;
              padding: 10px 14px; border-radius: 8px; font-size: 16px;
              cursor: pointer; transition: background 0.15s; }
   #mic-btn.listening { background: #3a1a1a; border-color: #e05555;
                        color: #e05555; animation: pulse 1s infinite; }
+  #mic-btn.realtime { background: #1a3a3a; border-color: #55e0e0; color: #55e0e0; }
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
   #lang-select { background: #222; border: 1px solid #333; color: #888;
                  padding: 10px 8px; border-radius: 8px; font-size: 12px; outline: none; }
@@ -456,6 +510,7 @@ HTML = """<!DOCTYPE html>
       <span id="header-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Оберіть агента</span>
     </div>
     <div id="header-right">
+      <button id="realtime-toggle" class="off" onclick="event.stopPropagation(); toggleRealtime();" title="Realtime Voice (Gemini Live)">Live</button>
       <button id="voice-toggle" class="off" onclick="toggleVoice()" title="Голосовой режим">&#x1F507;</button>
       <select id="tts-model-select" onchange="saveTtsModel(this.value)" title="TTS модель"></select>
       <button id="dialog-toggle" class="off" onclick="toggleDialog()" title="Авто-диалог: после ответа агента микрофон включается автоматически">&#x1F504;</button>
@@ -488,6 +543,11 @@ let voiceMode = false;
 let dialogMode = false;
 let availableTtsModels = {};
 let selectedTtsModel = 'gemini-3.1-flash-tts-preview';
+let realtimeMode = false;
+let realtimeWs = null;
+let audioContext = null;
+let processor = null;
+let inputSource = null;
 
 // i18n
 const I18N = {
@@ -665,6 +725,91 @@ function toggleDialog() {
   if (dialogMode && !voiceMode) toggleVoice();
 }
 
+function updateRealtimeVisibility(s) {
+  const btn = document.getElementById('realtime-toggle');
+  if (s.realtime_enabled) {
+    btn.style.display = 'inline-block';
+  } else {
+    btn.style.display = 'none';
+    if (realtimeMode) toggleRealtime();
+  }
+}
+
+async function toggleRealtime() {
+  realtimeMode = !realtimeMode;
+  const btn = document.getElementById('realtime-toggle');
+  btn.className = realtimeMode ? 'on' : 'off';
+  btn.textContent = realtimeMode ? 'Live: ON' : 'Live';
+  if (realtimeMode) {
+    startRealtime();
+  } else {
+    stopRealtime();
+  }
+}
+
+async function startRealtime() {
+  if (!currentAgent) return;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  try {
+  realtimeWs = new WebSocket(`${proto}://${location.host}/ws/realtime/${currentAgent}`);
+  realtimeWs.binaryType = 'arraybuffer';
+
+  audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+  
+  // Захват микрофона
+  const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+  inputSource = audioContext.createMediaStreamSource(stream);
+  processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+  processor.onaudioprocess = (e) => {
+    if (realtimeWs && realtimeWs.readyState === 1) {
+      const inputData = e.inputBuffer.getChannelData(0);
+      // Конвертация в Int16
+      const pcmData = new Int16Array(inputData.length);
+      for (let i = 0; i < inputData.length; i++) {
+        pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+      }
+      realtimeWs.send(pcmData.buffer);
+    }
+  };
+
+  inputSource.connect(processor);
+  processor.connect(audioContext.destination);
+
+  realtimeWs.onmessage = async (e) => {
+    if (e.data instanceof ArrayBuffer) {
+      // Воспроизведение входящего аудио
+      const audioBuffer = await audioContext.decodeAudioData(e.data);
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.start();
+    } else {
+      const data = JSON.parse(e.data);
+      if (data.type === 'text') {
+        appendMessage('assistant', data.text, null, 'web', false);
+      }
+    }
+  };
+  
+  document.getElementById('mic-btn').classList.add('realtime');
+  } catch(err) {
+    console.error('startRealtime error:', err);
+    realtimeMode = false;
+    const btn = document.getElementById('realtime-toggle');
+    btn.className = 'off';
+    btn.textContent = 'Live';
+  }
+}
+
+function stopRealtime() {
+  if (realtimeWs) realtimeWs.close();
+  if (processor) processor.disconnect();
+  if (inputSource) inputSource.disconnect();
+  if (audioContext) audioContext.close();
+  document.getElementById('mic-btn').classList.remove('realtime');
+}
+
 // Загрузить модели
  fetch('/api/models').then(r => r.json()).then(m => { availableModels = m; });
 applyLang('uk');  // дефолт — украинский
@@ -711,6 +856,7 @@ function selectAgent(key, label, btn) {
   fetch(`/api/settings/${key}`).then(r => r.json()).then(s => {
     sel.value = s.model;
     if (s.ui_lang) applyLang(s.ui_lang);
+    updateRealtimeVisibility(s);
   });
 
   // Загрузить историю
@@ -968,6 +1114,12 @@ async def websocket_endpoint(websocket: WebSocket, agent: str):
             await websocket.send_json({"type": "error", "text": str(e)})
         except Exception:
             pass
+
+
+@app.websocket("/ws/realtime/{agent}")
+async def websocket_realtime(websocket: WebSocket, agent: str, request: Request = None):
+    user_id = "alex"
+    await handle_realtime_voice(websocket, agent, user_id)
 
 
 def run():
