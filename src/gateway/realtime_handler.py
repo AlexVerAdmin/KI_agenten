@@ -8,7 +8,7 @@ from src.config import GEMINI_API_KEY, get_effective_settings
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = "gemini-2.0-flash-live-001"
+MODEL_ID = "gemini-3.1-flash-live-preview"
 
 
 async def handle_realtime_voice(websocket: WebSocket, agent: str, user_id: str = "alex"):
