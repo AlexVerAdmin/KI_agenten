@@ -1,0 +1,39 @@
+---
+services:
+  # Этот сервис работает только как воркер индексации и RAG на домашнем сервере
+  local_worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Указываем другой файл requirements для сборки воркера
+        - REQUIREMENTS_FILE=requirements-local.txt
+    container_name: antigravity_worker
+    restart: always
+    volumes:
+      # NFS маунты из Nextcloud (замените /mnt/nfs/ на ваши реальные пути NFS)
+      - ${OBSIDIAN_VAULT_PATH}:/app/obsidian:ro
+      - ${JOB_SEARCH_PATH}:/app/job_search:ro
+      # Хранилище для локальной векторной базы ChromaDB
+      - ./local_chroma_db:/app/chroma_db
+            # Монтируем SSH ключ для транспорта
+      - /home/alexadmin/.ssh/vds:/root/.ssh/vds:ro
+    environment:
+      - OBSIDIAN_VAULT_PATH=${OBSIDIAN_VAULT_PATH}
+      - VDS_SSH_KEY_PATH=/root/.ssh/vds
+      - JOB_SEARCH_PATH=${JOB_SEARCH_PATH}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - IS_WORKER_NODE=true
+      - API_SECRET=${API_SECRET} # Для защиты связи VDS <-> Local
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8001"
+    # На воркере UI не нужен, запускаем только API-обертку для RAG
+    command: python -m core.worker_api
+
+networks:
+  default:
+    name: antigravity_network

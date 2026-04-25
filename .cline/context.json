@@ -1,0 +1,10 @@
+{
+  "preload": [
+    "/home/alex/Obsidian/01_Projects/Agents/MASTER_PLAN.md",
+    "/home/alex/Obsidian/01_Projects/Agents/_shared/RULES_FOR_AI.md",
+    "/home/alex/Obsidian/01_Projects/Agents/_shared/ARCHITECTURE.md"
+  ],
+  "watch": [
+    "/home/alex/Obsidian/01_Projects/Agents/development/subplans/"
+  ]
+}

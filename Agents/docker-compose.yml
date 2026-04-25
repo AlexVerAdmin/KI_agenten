@@ -1,0 +1,60 @@
+services:
+  # UI (Streamlit интерфейс под защитой Authelia)
+  ui:
+    build: .
+    command: python -m src.main
+    user: "1001:1001"
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 250M # Лимит для UI
+    volumes:
+      - ./data:/app/data
+      - ./obsidian:/app/obsidian
+      - ./obsidian_vault_simulation:/app/obsidian_vault_simulation
+      - ./chroma_db:/app/chroma_db
+    env_file: .env
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # Хост для вашего AI-инструмента
+      - "traefik.http.routers.antigravity-ui.rule=Host(`agents.eurostick.com.ua`)"
+      - "traefik.http.routers.antigravity-ui.entrypoints=websecure"
+      - "traefik.http.routers.antigravity-ui.tls=true"
+      - "traefik.http.routers.antigravity-ui.tls.certresolver=letsencrypt"
+      # Подключение вашей цепочки мидлвар (secured-chain@file)
+      - "traefik.http.routers.antigravity-ui.middlewares=secured-chain@file"
+      - "traefik.http.services.antigravity-ui.loadbalancer.server.port=8080"
+
+  # Синхронизация Obsidian (Syncthing)
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: syncthing-obsidian
+    restart: unless-stopped
+    ports:
+      - "22000:22000/tcp" # Sync protocol
+      - "22334:22000/udp"
+    volumes:
+      - ./obsidian:/var/syncthing/obsidian
+      - ./st-config:/var/syncthing/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.syncthing.rule=Host(`sync-agents.eurostick.com.ua`)"
+      - "traefik.http.routers.syncthing.entrypoints=websecure"
+      - "traefik.http.routers.syncthing.tls=true"
+      - "traefik.http.routers.syncthing.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.syncthing.middlewares=secured-chain@file"
+      - "traefik.http.services.syncthing.loadbalancer.server.port=8384"
+
+networks:
+  proxy:
+    external: true

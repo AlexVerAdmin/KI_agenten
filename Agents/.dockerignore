@@ -1,0 +1,12 @@
+st-config/
+chroma_db/
+obsidian/
+data/
+history/
+__pycache__/
+*.bat
+project_*.md
+*.yml
+*.local.yml
+Dockerfile
+README.md

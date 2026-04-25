@@ -1,0 +1,17 @@
+# Базовые зависимости (из основного файла)
+-r requirements.txt
+
+# Тяжелые зависимости только для локального воркера (RAG)
+# API и серверные библиотеки
+fastapi
+uvicorn
+python-multipart
+
+# Векторная база и RAG
+chromadb
+langchain-chroma
+langchain-huggingface
+sentence-transformers
+docx2txt
+pypdf
+
