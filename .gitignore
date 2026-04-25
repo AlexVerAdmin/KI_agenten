@@ -26,8 +26,8 @@ ENV/
 
 # Secrets and environment variables
 .env
-.env.*
-! .env.example
+.env.local
+.env.transport
 secret.json
 *.pem
 *.key
@@ -37,6 +37,8 @@ chroma_db/
 memory_v2.sqlite
 *.sqlite3
 *.db
+data/
+runtime_sync/
 
 # OS generated files
 .DS_Store
@@ -49,8 +51,10 @@ Thumbs.db
 Desktop.ini
 
 # IDEs
-.vscode/*.json.bak
+.vscode/
+!.vscode/settings.json
 .idea/
+*.code-workspace
 
 # Application specific
 copilot_history.md
@@ -59,3 +63,12 @@ logs/
 *.zip
 *.tar.gz
 *.gguf
+
+# Knowledge and History (Synchronized separately via Obsidian)
+knowledge/
+history/
+obsidian_vault_simulation/
+
+# Tests and check files
+tests/
+check_*
