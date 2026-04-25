@@ -41,8 +41,13 @@ TTS_MODELS = {
 
 # ─── Пути ──────────────────────────────────────────────────────────────────
 
-OBSIDIAN_VAULT = os.environ.get("OBSIDIAN_VAULT_PATH", "/home/alex/Документи/ICH/SysVSC/obsidian_vault_simulation")
-SQLITE_DB_PATH = os.environ.get("SQLITE_DB_PATH", "/home/alex/Документи/ICH/SysVSC/Agents/data/conversations.sqlite")
+from pathlib import Path
+# Определяем базовый путь проекта (папка Agents)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+OBSIDIAN_VAULT = os.environ.get("OBSIDIAN_VAULT_PATH", str(BASE_DIR / "obsidian_vault_simulation"))
+SQLITE_DB_PATH = os.environ.get("SQLITE_DB_PATH", str(BASE_DIR / "data/conversations.sqlite"))
+OBSIDIAN_PROJECT = Path(os.environ.get("OBSIDIAN_PROJECT", "german"))
 
 # ─── Настройки агентов ──────────────────────────────────────────────────────
 
