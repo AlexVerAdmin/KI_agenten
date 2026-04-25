@@ -1,0 +1,21 @@
+{
+	"folders": [
+		{
+			"name": "Agents",
+			"path": "Agents"
+		},
+		{
+			"name": "Translator",
+			"path": "translator"
+		},
+		{
+			"name": "Obsidian (Memory)",
+			"path": "/home/alex/Obsidian"
+		}
+	],
+	"settings": {
+		"python.terminal.useEnvFile": true,
+		"python.envFile": "${workspaceFolder:Agents}/.env",
+		"python.defaultInterpreterPath": "${workspaceFolder:Agents}/venv/bin/python"
+	}
+}
