@@ -379,6 +379,12 @@ HTML = """<!DOCTYPE html>
                border-radius: 0; transition: background 0.15s; }
   .agent-btn:hover { background: #2a2a2a; }
   .agent-btn.active { background: #2a2a3a; color: #fff; border-left: 2px solid #6b8cff; }
+  #sidebar-footer { margin-top: auto; padding: 12px 16px; border-top: 1px solid #2a2a2a; }
+  #settings-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
+                  background: none; border: 1px solid #333; color: #aaa; cursor: pointer;
+                  border-radius: 6px; font-size: 13px; transition: background 0.15s, color 0.15s; }
+  #settings-btn:hover { background: #2a2a2a; color: #fff; border-color: #555; }
+  #agent-list { flex: 1; overflow-y: auto; }
 
   /* Chat area */
   #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -501,6 +507,11 @@ HTML = """<!DOCTYPE html>
 <div id="sidebar">
   <h2>Агенти</h2>
   <div id="agent-list"></div>
+  <div id="sidebar-footer">
+    <button id="settings-btn" onclick="window.location.href='/settings'" title="Налаштування">
+      &#9881; Налаштування
+    </button>
+  </div>
 </div>
 
 <div id="chat-area">
