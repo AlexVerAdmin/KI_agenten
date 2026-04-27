@@ -10,13 +10,13 @@ import uuid
 import json
 import logging
 import edge_tts
-from src.llm import chat_completion
+from Agents.src.llm import chat_completion
 
-from src.gateway.router import register
-from src.db.conversations import get_history_text, get_history
-from src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_effective_settings
-from src.utils.obsidian import read_obsidian, append_dated_note, write_obsidian
-from src.agents.base_agent import AgentWithObsidian
+from Agents.src.gateway.router import register
+from Agents.src.db.conversations import get_history_text, get_history
+from Agents.src.config import GEMINI_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME, get_effective_settings
+from Agents.src.utils.obsidian import read_obsidian, append_dated_note, write_obsidian
+from Agents.src.agents.base_agent import AgentWithObsidian
 
 logger = logging.getLogger(__name__)
 

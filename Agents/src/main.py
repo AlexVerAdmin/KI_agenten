@@ -20,11 +20,11 @@ if _env_file.exists():
             _k, _, _v = _line.partition("=")
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from src.db.conversations import init_db
-from src.gateway.web import app as web_app
+from Agents.src.db.conversations import init_db
+from Agents.src.gateway.web import app as web_app
 
 # Импортируем агентов чтобы зарегистрировались в router
-import src.agents.tutor  # noqa: F401
+import Agents.src.agents.tutor  # noqa: F401
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +42,7 @@ def run_web():
 async def run_telegram():
     """Запускает Telegram polling."""
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-    from src.gateway.bot import start, bind_tutor, handle_message
+    from Agents.src.gateway.bot import start, bind_tutor, handle_message
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:

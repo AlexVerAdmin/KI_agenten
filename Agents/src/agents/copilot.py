@@ -16,11 +16,11 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from src.llm import chat_completion
+from Agents.src.llm import chat_completion
 
-from src.gateway.router import register
-from src.db.conversations import get_history
-from src.config import (
+from Agents.src.gateway.router import register
+from Agents.src.db.conversations import get_history
+from Agents.src.config import (
     OBSIDIAN_VAULT, get_effective_settings,
 )
 

@@ -6,12 +6,12 @@
 """
 
 import logging
-from src.llm import chat_completion
+from Agents.src.llm import chat_completion
 
-from src.gateway.router import register
-from src.db.conversations import get_history_text
-from src.config import get_effective_settings
-from src.agents.base_agent import AgentWithObsidian
+from Agents.src.gateway.router import register
+from Agents.src.db.conversations import get_history_text
+from Agents.src.config import get_effective_settings
+from Agents.src.agents.base_agent import AgentWithObsidian
 
 logger = logging.getLogger(__name__)
 

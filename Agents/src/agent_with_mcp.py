@@ -5,7 +5,7 @@ from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from memory import new_session, save_message, save_session_summary, get_recent_history
+from Agents.src.memory import new_session, save_message, save_session_summary, get_recent_history
 
 # Настройки
 MODEL_URL = "http://127.0.0.1:8000/v1"

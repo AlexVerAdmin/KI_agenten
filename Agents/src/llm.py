@@ -3,7 +3,7 @@ import logging
 import asyncio
 import aiohttp
 import litellm
-from src.config import GEMINI_API_KEY, ANTHROPIC_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME
+from Agents.src.config import GEMINI_API_KEY, ANTHROPIC_API_KEY, LOCAL_MODEL_URL, LOCAL_MODEL_NAME
 
 logger = logging.getLogger(__name__)
 

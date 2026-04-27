@@ -4,8 +4,8 @@
 """
 
 from pathlib import Path
-from src.utils.obsidian import read_obsidian, append_dated_note
-from src.config import OBSIDIAN_PROJECT
+from Agents.src.utils.obsidian import read_obsidian, append_dated_note
+from Agents.src.config import OBSIDIAN_PROJECT
 
 
 class AgentWithObsidian:

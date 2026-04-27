@@ -20,16 +20,16 @@ app = FastAPI(title="Antigravity Agents")
 
 # Импортируем агентов чтобы они зарегистрировались в router
 try:
-    import src.agents.tutor    # noqa: F401
-    import src.agents.career   # noqa: F401
-    import src.agents.copilot  # noqa: F401
+    import Agents.src.agents.tutor    # noqa: F401
+    import Agents.src.agents.career   # noqa: F401
+    import Agents.src.agents.copilot  # noqa: F401
 except ImportError:
     logger.warning("Could not import agents, some functionality may be limited")
 
-from src.gateway.router import process, AGENT_LABELS
-from src.gateway.realtime_handler import handle_realtime_voice
-from src.db.conversations import get_recent_messages, delete_message
-from src.config import (
+from Agents.src.gateway.router import process, AGENT_LABELS
+from Agents.src.gateway.realtime_handler import handle_realtime_voice
+from Agents.src.db.conversations import get_recent_messages, delete_message
+from Agents.src.config import (
     AVAILABLE_MODELS, TTS_MODELS, AGENT_DEFAULTS, UI_LANGUAGES,
     get_effective_settings, save_global_settings, save_user_setting, reset_user_setting,
     get_agent_model, set_agent_model,
@@ -543,6 +543,14 @@ let voiceMode = false;
 let dialogMode = false;
 let availableTtsModels = {};
 let selectedTtsModel = 'gemini-3.1-flash-tts-preview';
+let realtimeMode = false;
+let realtimeWs = null;
+let audioContext = null;
+let processor = null;
+let inputSource = null;
+let playbackCtx = null;
+let realtimeStream = null;
+let nextPlayTime = 0;
 
 // i18n
 const I18N = {
@@ -745,55 +753,125 @@ async function toggleRealtime() {
 async function startRealtime() {
   if (!currentAgent) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  realtimeWs = new WebSocket(`${proto}://${location.host}/ws/realtime/${currentAgent}`);
-  realtimeWs.binaryType = 'arraybuffer';
-
-  audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
   
-  // Захват микрофона
-  const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-  inputSource = audioContext.createMediaStreamSource(stream);
-  processor = audioContext.createScriptProcessor(4096, 1, 1);
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    alert('Realtime Voice requires HTTPS');
+    return;
+  }
 
-  processor.onaudioprocess = (e) => {
-    if (realtimeWs && realtimeWs.readyState === 1) {
-      const inputData = e.inputBuffer.getChannelData(0);
-      // Конвертация в Int16
-      const pcmData = new Int16Array(inputData.length);
-      for (let i = 0; i < inputData.length; i++) {
-        pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+  try {
+    // 1. Сначала захватываем микрофон
+    realtimeStream = await navigator.mediaDevices.getUserMedia({audio: true});
+    
+    // 2. Инициализируем аудио
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+    playbackCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000});
+    nextPlayTime = 0;
+
+    inputSource = audioContext.createMediaStreamSource(realtimeStream);
+    processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    // 3. Создаем WebSocket ПОСЛЕ того как всё готово
+    realtimeWs = new WebSocket(`${proto}://${location.host}/ws/realtime/${currentAgent}`);
+    realtimeWs.binaryType = 'arraybuffer';
+
+    realtimeWs.onopen = () => {
+      console.log('Realtime WS opened');
+      inputSource.connect(processor);
+      processor.connect(audioContext.destination);
+    };
+
+    processor.onaudioprocess = (e) => {
+      if (realtimeWs && realtimeWs.readyState === 1) {
+        const inputData = e.inputBuffer.getChannelData(0);
+        const pcmData = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+        }
+        realtimeWs.send(pcmData.buffer);
       }
-      realtimeWs.send(pcmData.buffer);
-    }
-  };
+    };
 
-  inputSource.connect(processor);
-  processor.connect(audioContext.destination);
-
-  realtimeWs.onmessage = async (e) => {
-    if (e.data instanceof ArrayBuffer) {
-      // Воспроизведение входящего аудио
-      const audioBuffer = await audioContext.decodeAudioData(e.data);
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.start();
-    } else {
-      const data = JSON.parse(e.data);
-      if (data.type === 'text') {
-        appendMessage('assistant', data.text, null, 'web', false);
+    realtimeWs.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        const int16 = new Int16Array(e.data);
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) {
+          float32[i] = int16[i] / 32768.0;
+        }
+        const buf = playbackCtx.createBuffer(1, float32.length, 24000);
+        buf.copyToChannel(float32, 0);
+        const src = playbackCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(playbackCtx.destination);
+        const now = playbackCtx.currentTime;
+        if (nextPlayTime < now) nextPlayTime = now;
+        src.start(nextPlayTime);
+        nextPlayTime += buf.duration;
+      } else {
+        const data = JSON.parse(e.data);
+        if (data.type === 'text') {
+          appendMessage('assistant', data.text, null, 'web', false);
+        } else if (data.type === 'interrupted') {
+          nextPlayTime = 0;
+        } else if (data.type === 'error') {
+          console.error('Realtime error:', data.text);
+          alert('Server Error: ' + data.text);
+        }
       }
-    }
-  };
-  
-  document.getElementById('mic-btn').classList.add('realtime');
+    };
+
+    realtimeWs.onerror = (err) => {
+      console.error('Realtime WS error:', err);
+      alert('WebSocket connection failed');
+    };
+
+    realtimeWs.onclose = () => {
+      console.log('Realtime WS closed');
+      stopRealtime();
+    };
+
+    document.getElementById('mic-btn').classList.add('realtime');
+  } catch(err) {
+    console.error('startRealtime error:', err);
+    alert('Microphone access denied or error: ' + err.message);
+    stopRealtime();
+  }
 }
 
 function stopRealtime() {
-  if (realtimeWs) realtimeWs.close();
-  if (processor) processor.disconnect();
-  if (inputSource) inputSource.disconnect();
-  if (audioContext) audioContext.close();
+  realtimeMode = false;
+  const btn = document.getElementById('realtime-toggle');
+  if (btn) {
+    btn.className = 'off';
+    btn.textContent = 'Live';
+  }
+
+  if (realtimeWs) {
+    if (realtimeWs.readyState === 1) realtimeWs.close();
+    realtimeWs = null;
+  }
+  if (processor) {
+    processor.disconnect();
+    processor = null;
+  }
+  if (inputSource) {
+    inputSource.disconnect();
+    inputSource = null;
+  }
+  if (audioContext) {
+    if (audioContext.state !== 'closed') audioContext.close();
+    audioContext = null;
+  }
+  if (playbackCtx) {
+    if (playbackCtx.state !== 'closed') playbackCtx.close();
+    playbackCtx = null;
+  }
+  if (realtimeStream) {
+    realtimeStream.getTracks().forEach(track => track.stop());
+    realtimeStream = null;
+  }
+  
   document.getElementById('mic-btn').classList.remove('realtime');
 }
 
@@ -843,6 +921,7 @@ function selectAgent(key, label, btn) {
   fetch(`/api/settings/${key}`).then(r => r.json()).then(s => {
     sel.value = s.model;
     if (s.ui_lang) applyLang(s.ui_lang);
+    updateRealtimeVisibility(s);
   });
 
   // Загрузить историю
@@ -1100,6 +1179,12 @@ async def websocket_endpoint(websocket: WebSocket, agent: str):
             await websocket.send_json({"type": "error", "text": str(e)})
         except Exception:
             pass
+
+
+@app.websocket("/ws/realtime/{agent}")
+async def websocket_realtime(websocket: WebSocket, agent: str, request: Request = None):
+    user_id = "alex"
+    await handle_realtime_voice(websocket, agent, user_id)
 
 
 def run():

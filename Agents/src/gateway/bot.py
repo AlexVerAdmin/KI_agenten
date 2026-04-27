@@ -15,10 +15,10 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 sys.path.insert(0, '/app')
 
 # Импорт агентов — они регистрируются в router при импорте
-import src.agents.tutor  # noqa: F401
+import Agents.src.agents.tutor  # noqa: F401
 
-from src.gateway.router import process, AGENT_LABELS
-from src.db.conversations import init_db
+from Agents.src.gateway.router import process, AGENT_LABELS
+from Agents.src.db.conversations import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
