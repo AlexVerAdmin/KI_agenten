@@ -8,7 +8,9 @@ from Agents.src.config import GEMINI_API_KEY, get_effective_settings
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = "gemini-2.0-flash"
+# gemini-2.0-flash не поддерживает bidiGenerateContent (Gemini Live)
+# Используем gemini-3.1-flash-live-preview
+MODEL_ID = "gemini-3.1-flash-live-preview"
 
 
 async def handle_realtime_voice(websocket: WebSocket, agent: str, user_id: str = "alex"):
@@ -25,7 +27,8 @@ async def handle_realtime_voice(websocket: WebSocket, agent: str, user_id: str =
         await websocket.close()
         return
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    # Инициализируем клиента с v1alpha для поддержки Gemini Live (bidiGenerateContent)
+    client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1alpha'})
     voice_name = settings.get("tts_voice", "Puck")
     system_prompt = settings.get("system_prompt", "") or None
 
