@@ -1,74 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-venv/
-.venv/
-ENV/
+# Игнорируем всё, кроме папки Agents
+/*
+!/Agents/
+!/.gitignore
+!/README.md
 
-# Secrets and environment variables
-.env
-.env.local
-.env.transport
-secret.json
-*.pem
-*.key
-
-# Database and state
-chroma_db/
-memory_v2.sqlite
-*.sqlite3
-*.db
-data/
-runtime_sync/
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Desktop.ini
-
-# IDEs
-.vscode/
-!.vscode/settings.json
-.idea/
-*.code-workspace
-
-# Application specific
-copilot_history.md
-temp/
-logs/
-*.zip
-*.tar.gz
-*.gguf
-
-# Knowledge and History (Synchronized separately via Obsidian)
-knowledge/
-history/
-obsidian_vault_simulation/
-
-# Tests and check files
-tests/
-check_*
+# Стандартные игнорируемые файлы для Python внутри Agents
+Agents/.venv/
+Agents/__pycache__/
+Agents/*.pyc
+Agents/.env
+Agents/data/
+Agents/obsidian/
+Agents/chroma_db/
